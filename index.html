@@ -20,7 +20,8 @@
 
         #grid-container {
             cursor: default; 
-            width: 140vw;
+            /* 保持较大的容器尺寸以允许鱼眼效果放大 */
+            width: 140vw; 
             height: 140vh;
         }
 
@@ -32,6 +33,27 @@
             
             will-change: transform, opacity, filter;
             opacity: 0.7;
+        }
+        
+        /* 管理表格中的缩略图样式 */
+        .table-thumbnail {
+            width: 60px;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 4px;
+            border: 1px solid #4B5563;
+        }
+        
+        .admin-table-row {
+            transition: background-color 0.15s;
+        }
+
+        .admin-table-row:hover {
+            background-color: #374151; /* hover:bg-gray-700 */
+        }
+        
+        .selected-row {
+            background-color: #EF4444 !important; /* bg-red-500 */
         }
 
         /* 隐藏原生颜色选择器的输入框 */
@@ -47,7 +69,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, collection, query, getDocs, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // 导入 updateDoc 用于内联编辑
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, getDocs, setLogLevel, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ======================================================================
         // ** 【🔥🔥🔥 关键配置区域：手动配置 Firebase Firestore 🔥🔥🔥】 **
@@ -83,8 +106,8 @@
         let editContainer, contentDisplay, editTitleEl, editSubtitleEl, topContentArea;
         let editWebTitleEl, editTitleSizeEl, editTitleWeightEl, editTitleColorPickerEl, editTitleSpacingEl;
         let editSubtitleSizeEl, editSubtitleWeightEl, editSubtitleColorPickerEl, editSubtitleSpacingEl;
-        let adminToggleBtn, itemEditModal, itemEditIdEl, editImageUrlEl, editVideoUrlEl;
-        let authModal, authUsernameEl, authPasswordEl, authErrorMessageEl;
+        let adminToggleBtn, viewToggleBtn;
+        let authModal, authUsernameEl, authPasswordEl, authErrorMessageEl, adminTableContainer;
         
         // ** 视觉参数编辑元素 **
         let editFisheyeRadiusEl, editDecayPowerEl, editMinScaleEl, editMaxScaleEl;
@@ -92,9 +115,9 @@
 
 
         // --- 配置/状态变量 ---
-        const NUM_COLS = 14; 
-        const NUM_ROWS = 10; 
-        const TOTAL_ITEMS = NUM_COLS * NUM_ROWS;
+        const NUM_COLS = 10; 
+        const NUM_ROWS = 6; 
+        const TOTAL_ITEMS = NUM_COLS * NUM_ROWS; // 60
         const PLACEHOLDER_VID = "https://www.w3schools.com/html/mov_bbb.mp4"; // 默认视频占位符
 
         // ** 动态交互参数 **
@@ -106,8 +129,20 @@
 
         // 固定的视差强度
         const PARALLAX_INTENSITY = 0.1; 
+        
+        // 【新增状态变量】
+        window.currentView = 'grid'; // 'grid' | 'table'
+        let isAdminMode = false;
+        let selectedItemId = null; // 当前在表格中选中的 Item ID
+        let isFocusMode = false; // 是否处于聚焦模式
+        
+        // 【新增】中心距离排序映射
+        let CENTER_DISTANCE_MAP = { 
+            newIdToOriginalIndex: Array.from({ length: TOTAL_ITEMS }, (_, i) => i), // 默认初始化
+            originalIndexToNewId: Array.from({ length: TOTAL_ITEMS }, (_, i) => i) 
+        };
 
-        // 默认视觉设置
+
         const DEFAULT_FISHEYE_SETTINGS = {
             radius: 300,
             decayPower: 2.0,
@@ -145,7 +180,6 @@
         let isMouseActive = false; 
         let animationFrameId = null; 
         let parallaxOffset = { x: 0, y: 0 }; 
-        let isAdminMode = false;
         let editingItemId = null; 
 
         // 使用硬编码的 appId 来构建 Firestore 路径
@@ -180,12 +214,79 @@
                 element.classList.add('md:text-2xl'); 
             }
         }
+        
+        /**
+         * 【新增函数】计算网格中心距离排序映射
+         * @returns {{newIdToOriginalIndex: number[], originalIndexToNewId: number[]}} 映射对象
+         */
+        function calculateCenterDistanceMapping() {
+            const mapping = [];
+            // 10x6 网格的中心点 (C, R) 是 (4.5, 2.5)
+            // 项目中心 (C_item, R_item) 是 (C+0.5, R+0.5)
+            // 距离平方 D^2 = (4.5 - (C+0.5))^2 + (2.5 - (R+0.5))^2 = (4-C)^2 + (2-R)^2
+            const C_TARGET = 4; 
+            const R_TARGET = 2; 
+
+            for (let i = 0; i < TOTAL_ITEMS; i++) {
+                const C = i % NUM_COLS;
+                const R = Math.floor(i / NUM_COLS);
+
+                const D_squared = Math.pow(C_TARGET - C, 2) + Math.pow(R_TARGET - R, 2);
+
+                // Store the original index (spatial index) and its distance score
+                mapping.push({ originalIndex: i, distance: D_squared, C, R });
+            }
+
+            // Sort by distance (ascending). Distance 0 is the closest (i=24).
+            // Use original index as secondary key for stable sorting
+            mapping.sort((a, b) => {
+                if (a.distance !== b.distance) {
+                    return a.distance - b.distance; 
+                }
+                return a.originalIndex - b.originalIndex; 
+            });
+
+            // Create the final index map: new ID -> original index
+            const newIdToOriginalIndex = mapping.map(item => item.originalIndex);
+            
+            // Create the reverse map: original index -> new ID
+            const originalIndexToNewId = new Array(TOTAL_ITEMS).fill(0);
+            newIdToOriginalIndex.forEach((originalIndex, newId) => {
+                originalIndexToNewId[originalIndex] = newId;
+            });
+
+            return { newIdToOriginalIndex, originalIndexToNewId };
+        }
+
+
+        /**
+         * 【新增函数】生成网格位置缩略图 HTML
+         * @param {number} index - 当前项目在网格中的原始空间索引 (0 to TOTAL_ITEMS - 1).
+         * @param {string} highlightColor - 用于高亮的颜色 (即项目的 bgColor).
+         * @returns {string} HTML string for the thumbnail grid.
+         */
+        function renderLocationThumbnail(index, highlightColor) {
+            const totalItems = NUM_COLS * NUM_ROWS; 
+            // 设定固定的尺寸 (60px x 45px)，gap 为 1px
+            let gridHtml = `<div class="w-[60px] h-[45px] grid gap-[1px] bg-gray-900 border border-gray-700 rounded-sm overflow-hidden" 
+                                style="grid-template-columns: repeat(${NUM_COLS}, 1fr); grid-template-rows: repeat(${NUM_ROWS}, 1fr);">`;
+
+            for (let i = 0; i < totalItems; i++) {
+                // 当前项目使用其自身的 bgColor，其他项目使用暗灰色 #374151
+                const bgColor = i === index ? highlightColor : '#374151'; 
+                gridHtml += `<div class="w-full h-full" style="background-color: ${bgColor};"></div>`;
+            }
+
+            gridHtml += `</div>`;
+            return gridHtml;
+        }
+
 
         // --- Admin/Auth 逻辑 ---
 
         window.setAdminMode = (mode) => {
             isAdminMode = mode;
-            if (!adminToggleBtn || !topContentArea) return; 
+            if (!adminToggleBtn || !topContentArea || !viewToggleBtn) return; 
 
             // 1. 文本改为 (R)
             adminToggleBtn.textContent = '(R)';
@@ -200,21 +301,98 @@
                 topContentArea.classList.add('border-b-4', 'border-red-600');
                 window.closeAuthModal(); 
                 
-                // ** 【新增】进入管理员模式时，立即复位网格缩放状态 **
+                // ** 进入管理员模式时，立即复位网格缩放状态 **
                 resetGridScale();
                 console.log("Admin Mode activated. Grid scales reset.");
+                
+                // 默认切换到网格视图，并显示切换按钮
+                window.switchView('grid');
+                viewToggleBtn.classList.remove('hidden'); // 显示切换按钮
+
             } else {
                 // OFF: 黑色文字, 浅灰背景
                 adminToggleBtn.classList.add('text-black', 'bg-gray-300', 'hover:bg-gray-400');
                 topContentArea.classList.remove('border-b-4', 'border-red-600');
+                viewToggleBtn.classList.add('hidden'); // 隐藏切换按钮
                 console.log("Admin Mode deactivated.");
+                
+                // 确保返回网格视图
+                document.getElementById('grid-container').classList.remove('hidden');
+                document.getElementById('admin-table-view').classList.add('hidden');
             }
         };
+        
+        /**
+         * 切换视图：网格 <-> 表格
+         */
+        window.switchView = (view) => {
+            if (!isAdminMode) return; 
+
+            window.currentView = view; // 使用 window.currentView
+
+            const gridEl = document.getElementById('grid-container');
+            const tableEl = document.getElementById('admin-table-view');
+            const topEditContainer = document.getElementById('edit-mode-container');
+            const contentDisplayEl = document.getElementById('content-display');
+            const persistentControlsEl = document.getElementById('admin-persistent-controls');
+
+            if (view === 'table') {
+                isFocusMode = false; // 进入表格模式，退出聚焦
+                gridEl.classList.add('hidden');
+                tableEl.classList.remove('hidden');
+                renderAdminTable(); // 生成表格内容
+                
+                // 隐藏主标题编辑面板和主标题显示
+                topEditContainer.classList.add('hidden'); 
+                contentDisplayEl.classList.add('hidden');
+                
+                // 确保管理员控制条显示在最顶层
+                persistentControlsEl.classList.remove('z-30');
+                persistentControlsEl.classList.add('z-50'); 
+                
+                viewToggleBtn.textContent = '返回网格视图';
+            } else {
+                // 切换回网格视图时，重置聚焦/缩放
+                resetFocusAndScale(); 
+                gridEl.classList.remove('hidden');
+                tableEl.classList.add('hidden');
+                
+                // 切换回网格视图时，显示主标题
+                contentDisplayEl.classList.remove('hidden');
+                window.toggleEditMode(false); // 确保设置面板折叠
+                
+                persistentControlsEl.classList.remove('z-50');
+                persistentControlsEl.classList.add('z-30');
+                
+                viewToggleBtn.textContent = '切换到列表编辑';
+            }
+        };
+        
+        /**
+         * 重置聚焦和缩放
+         */
+        function resetFocusAndScale() {
+            isFocusMode = false;
+            selectedItemId = null;
+            resetGridScale(); // 复位网格元素大小
+            resetGrid(); // 复位网格偏移
+            
+            // 移除所有行高亮
+            document.querySelectorAll('.admin-table-row').forEach(row => {
+                row.classList.remove('selected-row');
+            });
+
+            // 恢复鼠标动画
+            isMouseActive = true; 
+            startAnimationLoop();
+        }
+
 
         window.handleAdminToggle = () => {
             if (!adminToggleBtn) return; 
             if (isAdminMode) {
                 window.setAdminMode(false);
+                resetFocusAndScale(); // 退出管理员模式时重置所有状态
             } else {
                 window.openAuthModal();
             }
@@ -382,6 +560,9 @@
             currentMaxScale = DEFAULT_FISHEYE_SETTINGS.maxScale;
             currentParallaxSmoothing = DEFAULT_FISHEYE_SETTINGS.parallaxSmoothing; // 应用默认平滑度
 
+            // 初始化中心距离映射
+            CENTER_DISTANCE_MAP = calculateCenterDistanceMapping();
+
             // 初始化网格数据并渲染
             initializeDefaultGridData(); 
             createGrid(); 
@@ -452,7 +633,11 @@
                 snapshot.docChanges().forEach(change => {
                     const data = change.doc.data();
                     const itemId = change.doc.id;
-                    const i = parseInt(itemId.split('_')[1]);
+                    const i = parseInt(itemId.split('_')[1]); // 原始空间索引
+                    
+                    // 检查索引是否在新范围内 (0-59)
+                    if (i >= TOTAL_ITEMS) return; 
+                    
                     const colIndex = getColumnIndex(i);
                     const defaultColor = getColorForColumn(colIndex);
 
@@ -462,21 +647,26 @@
                         bgColor: data.bgColor || defaultColor 
                     };
                 });
+                
+                // 填充所有缺失的项目，确保 itemData 总是包含 TOTAL_ITEMS (60) 个键
+                for (let i = 0; i < TOTAL_ITEMS; i++) {
+                    const itemId = `item_${i}`;
+                    const colIndex = getColumnIndex(i);
+                    const defaultColor = getColorForColumn(colIndex);
+                    
+                    if (!newItemsFromFirestore[itemId]) {
+                        // 使用现有数据或默认数据进行填充
+                        newItemsFromFirestore[itemId] = itemData[itemId] || {
+                            img: null,
+                            vid: PLACEHOLDER_VID,
+                            bgColor: defaultColor
+                        };
+                    }
+                }
                 itemData = newItemsFromFirestore;
 
-                if (initialLoad) {
-                    let needsDefaultInit = false;
-                    for (let i = 0; i < TOTAL_ITEMS; i++) {
-                        const itemId = `item_${i}`;
-                        if (!itemData[itemId]) {
-                            needsDefaultInit = true;
-                            break;
-                        }
-                    }
 
-                    if(needsDefaultInit) {
-                        initializeDefaultGridData();
-                    }
+                if (initialLoad) {
                     createGrid();
                 } else {
                     updateGridDOM();
@@ -526,14 +716,20 @@
                         vid: PLACEHOLDER_VID,
                         bgColor: defaultColor
                     };
+                    // 只写入前 5 个作为示例
                     if (i < 5) { 
+                        // 使用 setDoc 创建/更新文档
                         await setDoc(doc(db, getGridCollectionPath(appId), itemId), itemData[itemId]);
                     }
                 }
             } else {
+                 // 如果存在数据，但数量不足 TOTAL_ITEMS，确保 itemData 完整
                  snapshot.docs.forEach(doc => {
                     const data = doc.data();
-                    const i = parseInt(doc.id.split('_')[1]);
+                    const i = parseInt(doc.id.split('_')[1]); // 原始空间索引
+                    // 忽略超出新 TOTAL_ITEMS 范围的项目
+                    if (i >= TOTAL_ITEMS) return; 
+                    
                     const colIndex = getColumnIndex(i);
                     const defaultColor = getColorForColumn(colIndex);
 
@@ -543,6 +739,14 @@
                         bgColor: data.bgColor || defaultColor
                     };
                 });
+                // 填充缺失的部分
+                for (let i = 0; i < TOTAL_ITEMS; i++) {
+                    const itemId = `item_${i}`;
+                    if (!itemData[itemId]) {
+                         const colIndex = getColumnIndex(i);
+                         itemData[itemId] = { img: null, vid: PLACEHOLDER_VID, bgColor: getColorForColumn(colIndex) };
+                    }
+                }
             }
         }
         
@@ -550,15 +754,18 @@
             if (items.length > 0 || !gridContainer) return; 
             
             gridContainer.innerHTML = ''; 
+            // 网格结构保持不变（10x6）
             gridContainer.style.gridTemplateColumns = `repeat(${NUM_COLS}, 1fr)`;
 
             for (let i = 0; i < TOTAL_ITEMS; i++) {
+                // i 是原始的空间索引 (0-59, 从左上角开始)
                 const itemId = `item_${i}`;
                 const data = itemData[itemId]; 
 
                 const item = document.createElement('div');
                 item.className = 'grid-item aspect-square bg-cover bg-center cursor-pointer';
                 
+                // 应用数据 (颜色/图片)
                 if (data && data.img && data.img.trim()) {
                     item.style.backgroundImage = `url(${data.img})`;
                     item.style.backgroundColor = 'transparent';
@@ -575,6 +782,7 @@
                 item.style.transform = `scale(${currentMinScale})`; 
                 item.style.opacity = '0.7'; 
 
+                // 使用原始空间索引作为 data-id
                 item.dataset.videoId = itemId;
                 
                 gridContainer.appendChild(item);
@@ -597,7 +805,7 @@
             if (items.length === 0 || !gridContainer) return; 
 
             for(let i = 0; i < items.length; i++) {
-                const itemId = `item_${i}`;
+                const itemId = `item_${i}`; // 原始空间索引 ID
                 const data = itemData[itemId];
                 const itemEl = items[i].el;
                 
@@ -623,72 +831,183 @@
                 }
             }
         }
-
-        window.openItemEditPanel = (itemElement) => {
-            if (!itemEditModal || !itemEditIdEl || !editImageUrlEl || !editVideoUrlEl) return; 
-            if (!isAdminMode) return console.error("Permission denied. Admin mode required.");
-            if (isLocalMode) return console.error("Cannot edit in local mode. Requires Firebase connection.");
-
-            editingItemId = itemElement.dataset.videoId;
-            let data = itemData[editingItemId]; 
-            
-            if (!data) {
-                const parts = editingItemId.split('_');
-                if (parts.length < 2) return console.error("Invalid item ID format:", editingItemId);
-                
-                const itemIndex = parseInt(parts[1]);
-                const colIndex = getColumnIndex(itemIndex);
-                
-                data = { img: null, vid: PLACEHOLDER_VID, bgColor: getColorForColumn(colIndex) };
-            }
-
-            itemEditIdEl.textContent = `(ID: ${editingItemId})`;
-            editImageUrlEl.value = data.img || ''; 
-            editVideoUrlEl.value = data.vid;
-            
-            itemEditModal.classList.remove('hidden');
-        };
         
-        window.closeItemEditPanel = () => {
-            if (!itemEditModal) return; 
-            itemEditModal.classList.add('hidden');
-            editingItemId = null;
-        };
+        /**
+         * 【新增函数】内联保存项目更改
+         * itemId 是原始空间 ID (item_i)
+         */
+        window.saveInlineItemChange = async (itemId, imgInputId, vidInputId, saveButton) => {
+            const imgInput = document.getElementById(imgInputId);
+            const vidInput = document.getElementById(vidInputId);
 
-        window.saveItemChanges = async () => {
-            if (!editImageUrlEl || !editVideoUrlEl) return; 
+            if (!imgInput || !vidInput) return console.error("Missing input elements for saving.");
 
-            const newImg = editImageUrlEl.value.trim();
-            const newVid = editVideoUrlEl.value.trim();
+            const newImg = imgInput.value.trim();
+            const newVid = vidInput.value.trim();
 
-            if (isLocalMode || !db || !appId || !editingItemId) return console.error("Invalid state for saving. Cannot save in local mode.");
+            if (isLocalMode || !db || !appId) return console.error("Invalid state for saving. Cannot save in local mode.");
             if (!isAdminMode) return console.error("Permission denied. Admin mode required.");
 
-            const itemIndex = parseInt(editingItemId.split('_')[1]);
+            // 禁用按钮并显示加载中状态
+            saveButton.disabled = true;
+            saveButton.textContent = '保存中...';
+            saveButton.classList.remove('bg-red-600', 'hover:bg-red-700', 'bg-green-600', 'hover:bg-green-700');
+            saveButton.classList.add('bg-gray-500');
+
+            const itemIndex = parseInt(itemId.split('_')[1]); // 原始空间索引 i
             const colIndex = getColumnIndex(itemIndex);
             const defaultColor = getColorForColumn(colIndex);
 
             const dataToSave = { 
                 vid: newVid,
-                bgColor: itemData[editingItemId]?.bgColor || defaultColor, 
+                bgColor: itemData[itemId]?.bgColor || defaultColor, 
+                img: newImg || null,
             };
-            
-            if (newImg) {
-                dataToSave.img = newImg; 
-            } else {
-                dataToSave.img = null; 
-            }
 
-            const docRef = doc(db, getGridCollectionPath(appId), editingItemId);
+            const docRef = doc(db, getGridCollectionPath(appId), itemId);
 
             try {
-                await setDoc(docRef, dataToSave, { merge: true }); 
-                console.log(`Item ${editingItemId} saved successfully.`);
-                window.closeItemEditPanel();
+                await updateDoc(docRef, dataToSave); 
+                console.log(`Item ${itemId} updated successfully.`);
+                
+                // 更新本地 itemData
+                itemData[itemId] = { ...itemData[itemId], ...dataToSave };
+                
+                // 恢复按钮状态
+                saveButton.textContent = '保存';
+                saveButton.classList.remove('bg-gray-500');
+                saveButton.classList.add('bg-green-600', 'hover:bg-green-700');
+                
+                // 重新渲染表格以更新预览图
+                renderAdminTable(); 
+
             } catch (e) {
                 console.error("Error saving grid item: ", e);
+                saveButton.textContent = '保存失败';
+                saveButton.classList.remove('bg-gray-500', 'bg-green-600', 'hover:bg-green-700');
+                saveButton.classList.add('bg-red-600', 'hover:bg-red-700');
+            } finally {
+                 saveButton.disabled = false;
             }
         };
+
+        /**
+         * 【新增函数】聚焦到选定的网格项目
+         * itemId 是原始空间 ID (item_i)
+         */
+        window.selectItem = (itemId, rowElement) => {
+            if (!isAdminMode) return; 
+
+            // 1. 高亮表格行
+            document.querySelectorAll('.admin-table-row').forEach(row => {
+                row.classList.remove('selected-row');
+            });
+            rowElement.classList.add('selected-row');
+            
+            selectedItemId = itemId; 
+            isFocusMode = true; 
+            isMouseActive = true; 
+            startAnimationLoop(); 
+
+            // 2. 居中计算
+            const item = items.find(i => i.el.dataset.videoId === itemId);
+            if (!item) return;
+
+            const viewportCenterX = window.innerWidth / 2;
+            const viewportCenterY = window.innerHeight / 2;
+            
+            // 计算需要将项目中心移动到视口中心所需的偏移量
+            // T_x = V_x - C_x
+            const targetX = viewportCenterX - item.center.x;
+            const targetY = viewportCenterY - item.center.y;
+            
+            // 立即设置偏移目标，动画循环会平滑过渡
+            parallaxOffset.x = targetX;
+            parallaxOffset.y = targetY;
+            applyGridTransform(); // 立即应用一次以减少延迟
+        };
+
+
+        /**
+         * 渲染管理员素材编辑表格
+         */
+        function renderAdminTable() {
+            if (!adminTableContainer) return; 
+
+            let tableHtml = `
+                <div class="overflow-x-auto h-[80vh] bg-gray-900/90 backdrop-blur-sm rounded-xl shadow-2xl p-4">
+                    <table class="min-w-full divide-y divide-gray-700">
+                        <thead class="sticky top-0 bg-gray-900/95">
+                            <tr>
+                                <!-- 标题改为 ID (中心距离) -->
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-16">ID (中心距离)</th>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-20">预览</th>
+                                <!-- 新增位置缩略图列 -->
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-24">位置</th>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">图片 URL (Image)</th>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">视频 URL (Video)</th>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-24">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-800">
+            `;
+
+            // 【关键更改】：根据中心距离排序的映射来渲染表格行
+            for (let newId = 0; newId < TOTAL_ITEMS; newId++) {
+                // originalIndex 是网格的物理位置索引 (0-59)
+                const originalIndex = CENTER_DISTANCE_MAP.newIdToOriginalIndex[newId];
+                const itemId = `item_${originalIndex}`; // Firestore/DOM ID
+
+                const data = itemData[itemId] || { 
+                    img: '', 
+                    vid: PLACEHOLDER_VID, 
+                    bgColor: getColorForColumn(getColumnIndex(originalIndex)) 
+                };
+                
+                const imgUrl = data.img || '';
+                const videoUrl = data.vid || '';
+                const displayImg = imgUrl.trim() || `https://placehold.co/60x60/${data.bgColor.substring(1)}/FFFFFF?text=${originalIndex}`;
+                
+                const isSelected = selectedItemId === itemId ? 'selected-row' : '';
+
+                tableHtml += `
+                    <tr id="row-${itemId}" class="admin-table-row text-gray-300 cursor-pointer ${isSelected}" 
+                        data-item-id="${itemId}" onclick="selectItem('${itemId}', this)">
+                        <!-- 显示新的中心距离 ID (newId) -->
+                        <td class="px-3 py-2 whitespace-nowrap text-sm font-medium">${newId}</td> 
+                        <td class="px-3 py-2 whitespace-nowrap">
+                            <img src="${displayImg}" class="table-thumbnail" onerror="this.onerror=null; this.src='https://placehold.co/60x60/374151/FFFFFF?text=${originalIndex}'" alt="Item ${originalIndex} Preview">
+                        </td>
+                        <!-- 位置缩略图依然使用原始空间索引 originalIndex -->
+                        <td class="px-3 py-2">
+                            ${renderLocationThumbnail(originalIndex, data.bgColor)} 
+                        </td>
+                        <td class="px-3 py-2 text-sm max-w-sm">
+                            <input id="img-input-${itemId}" type="text" value="${imgUrl}" placeholder="Image URL" 
+                                class="w-full text-xs rounded-md bg-gray-700 border-gray-600 text-white p-1 focus:ring-red-500 focus:border-red-500">
+                        </td>
+                        <td class="px-3 py-2 text-sm max-w-sm">
+                            <input id="vid-input-${itemId}" type="text" value="${videoUrl}" placeholder="Video URL" 
+                                class="w-full text-xs rounded-md bg-gray-700 border-gray-600 text-white p-1 focus:ring-red-500 focus:border-red-500">
+                        </td>
+                        <td class="px-3 py-2 whitespace-nowrap text-sm">
+                            <button class="px-3 py-1 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition duration-150" 
+                                onclick="event.stopPropagation(); saveInlineItemChange('${itemId}', 'img-input-${itemId}', 'vid-input-${itemId}', this);">
+                                保存
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }
+
+            tableHtml += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            adminTableContainer.innerHTML = tableHtml;
+        }
+
 
         /**
          * 1. 获取所有 DOM 元素的引用
@@ -707,6 +1026,7 @@
             editTitleEl = document.getElementById('edit-title');
             editSubtitleEl = document.getElementById('edit-subtitle');
             topContentArea = document.getElementById('top-content-area');
+            adminTableContainer = document.getElementById('admin-table-view'); // 新增表格容器
 
             // Admin Text Edit Elements
             editWebTitleEl = document.getElementById('edit-web-title'); 
@@ -729,10 +1049,8 @@
 
             // Admin UI elements
             adminToggleBtn = document.getElementById('admin-toggle-btn');
-            itemEditModal = document.getElementById('item-edit-modal');
-            itemEditIdEl = document.getElementById('item-edit-id');
-            editImageUrlEl = document.getElementById('edit-image-url');
-            editVideoUrlEl = document.getElementById('edit-video-url');
+            viewToggleBtn = document.getElementById('view-toggle-btn'); // 视图切换按钮
+
             // Auth UI elements
             authModal = document.getElementById('auth-modal');
             authUsernameEl = document.getElementById('auth-username');
@@ -742,34 +1060,45 @@
             // --- 2. 绑定事件监听器 ---
 
             window.addEventListener('mousemove', (e) => {
-                mousePos.x = e.clientX;
-                mousePos.y = e.clientY;
+                // 只有在网格视图且非聚焦模式时才更新鼠标位置
+                if (window.currentView === 'grid' || isFocusMode === false) { 
+                    mousePos.x = e.clientX;
+                    mousePos.y = e.clientY;
 
-                if (!isMouseActive) {
-                    isMouseActive = true;
-                    startAnimationLoop();
+                    if (!isMouseActive) {
+                        isMouseActive = true;
+                        startAnimationLoop();
+                    }
                 }
             });
 
             window.addEventListener('mouseenter', () => {
-                if (!isMouseActive) {
+                 if (window.currentView === 'grid' && !isMouseActive && isFocusMode === false) { 
                     isMouseActive = true;
                     startAnimationLoop();
                 }
             });
 
             window.addEventListener('mouseleave', () => {
-                isMouseActive = false;
-                resetGrid(); 
+                if (isFocusMode === false) {
+                    isMouseActive = false;
+                    resetGrid(); 
+                }
             });
 
             gridContainer.addEventListener('click', (e) => {
                 const itemElement = e.target.closest('.grid-item');
                 if (itemElement) {
-                    const itemId = itemElement.dataset.videoId;
+                    const itemId = itemElement.dataset.videoId; // 原始空间 ID (item_i)
                     
                     if (isAdminMode) {
-                        window.openItemEditPanel(itemElement);
+                        // 在网格视图下点击项目，直接切换到表格并选中该项目
+                        window.switchView('table');
+                        const rowElement = document.getElementById(`row-${itemId}`);
+                        if (rowElement) {
+                             window.selectItem(itemId, rowElement);
+                             rowElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
                         return; 
                     }
 
@@ -791,6 +1120,11 @@
                 clearTimeout(resizeTimer);
                 resizeTimer = setTimeout(() => {
                     cacheItemPositions();
+                    // 如果在聚焦模式，重新计算居中
+                    if(isFocusMode && selectedItemId) {
+                         const rowElement = document.getElementById(`row-${selectedItemId}`);
+                         if(rowElement) window.selectItem(selectedItemId, rowElement); // 重新触发居中计算
+                    }
                 }, 100);
             });
 
@@ -811,6 +1145,9 @@
         window.setupApp = async () => {
             
             setupDOMAndListeners();
+            
+            // 【新增】在初始化时计算一次中心距离映射
+            CENTER_DISTANCE_MAP = calculateCenterDistanceMapping();
 
             const hasFirebaseConfig = Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey.includes('AIzaSyD'); 
 
@@ -889,6 +1226,7 @@
 
             const finalX = parallaxOffset.x;
             const finalY = parallaxOffset.y;
+            // 使用 translate3d 提升 GPU 渲染性能
             gridContainer.style.transform = `translate3d(${finalX}px, ${finalY}px, 0)`; 
         }
 
@@ -917,80 +1255,111 @@
             const viewportCenterX = window.innerWidth / 2;
             const viewportCenterY = window.innerHeight / 2;
             
-            const targetParallaxX = (mousePos.x - viewportCenterX) * PARALLAX_INTENSITY;
-            const targetParallaxY = (mousePos.y - viewportCenterY) * PARALLAX_INTENSITY;
-            
-            // 使用动态平滑系数 currentParallaxSmoothing
-            parallaxOffset.x += (targetParallaxX - parallaxOffset.x) * currentParallaxSmoothing;
-            parallaxOffset.y += (targetParallaxY - parallaxOffset.y) * currentParallaxSmoothing;
+            if (!isFocusMode) {
+                 // 正常模式下，计算基于鼠标的视差目标
+                const targetParallaxX = (mousePos.x - viewportCenterX) * PARALLAX_INTENSITY;
+                const targetParallaxY = (mousePos.y - viewportCenterY) * PARALLAX_INTENSITY;
+                
+                // 使用动态平滑系数 currentParallaxSmoothing 进行平滑过渡
+                parallaxOffset.x += (targetParallaxX - parallaxOffset.x) * currentParallaxSmoothing;
+                parallaxOffset.y += (targetParallaxY - parallaxOffset.y) * currentParallaxSmoothing;
+            } else {
+                // 聚焦模式下，计算基于目标的平滑过渡
+                const item = items.find(i => i.el.dataset.videoId === selectedItemId);
+                if (item) {
+                    const targetX = viewportCenterX - item.center.x;
+                    const targetY = viewportCenterY - item.center.y;
+
+                    // 使用更慢的平滑度实现平滑的居中动画
+                    const FOCUS_SMOOTHING = 0.05; 
+                    parallaxOffset.x += (targetX - parallaxOffset.x) * FOCUS_SMOOTHING;
+                    parallaxOffset.y += (targetY - parallaxOffset.y) * FOCUS_SMOOTHING;
+                }
+            }
             
             applyGridTransform(); 
 
-            if (isAdminMode) {
-                // 管理员模式下，只执行视差，不执行鱼眼和闪烁效果
+            if (isAdminMode && window.currentView === 'table') { 
+                // 表格视图下，只执行视差/聚焦平移，不执行鱼眼和闪烁效果
+                animationFrameId = requestAnimationFrame(updateFisheyeEffect); // 保持动画循环运行
+                return;
+            } else if (isAdminMode) {
+                // 管理员网格模式下，只执行视差，不执行鱼眼和闪烁效果
                 animationFrameId = requestAnimationFrame(updateFisheyeEffect);
                 return;
             }
 
-            // --- 2. 鱼眼效果计算 (使用动态参数) ---
+            // --- 2. 鱼眼/聚焦效果计算 ---
             const fisheyeCenterX = mousePos.x;
             const fisheyeCenterY = mousePos.y;
             // 动态读取配置参数
             const fisheyeRadius = currentFisheyeRadius;
             const minScale = currentMinScale;
             const decayPower = currentDecayPower;
-            const maxScale = currentMaxScale; // 使用动态的最大放大倍数
+            const maxScale = currentMaxScale; 
 
+            // 聚焦模式下，使用更大的缩放目标
+            const focusScale = maxScale * 1.5; 
 
             for (const item of items) {
                 const adjustedItemCenterX = item.center.x + parallaxOffset.x; 
                 const adjustedItemCenterY = item.center.y + parallaxOffset.y; 
 
-                const dx = fisheyeCenterX - adjustedItemCenterX;
-                const dy = fisheyeCenterY - adjustedItemCenterY;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-
                 let scale;
                 let opacity;
                 let zIndex = 1;
                 let brightness = 1.0; 
-
-                if (dist >= fisheyeRadius) { // 使用动态半径
-                    
-                    opacity = 0.7;
-                    
-                    // --- 3. 强化闪烁效果 (Twinkling: 亮度 + 大小) ---
-                    item.twinklePhase += (0.02 + Math.random() * 0.01) * item.twinkleSpeed;
-                    const sineVal = (Math.sin(item.twinklePhase) + 1) / 2;
-                    
-                    const minBrightness = 0.2; 
-                    const maxBrightness = 1.4; 
-                    const brightnessRange = maxBrightness - minBrightness; 
-                    brightness = minBrightness + (brightnessRange * sineVal);
-                    
-                    // 使用动态初始大小计算闪烁范围
-                    const minTwinkleScale = minScale * 0.70; 
-                    const maxTwinkleScale = minScale * 1.30; 
-                    const scaleRange = maxTwinkleScale - minTwinkleScale;
-                    
-                    const sineTwinkleScale = (Math.sin(item.twinklePhase) + 1) / 2; 
-                    scale = minTwinkleScale + (scaleRange * sineTwinkleScale); 
-                    
-                } else {
-                    // 鱼眼效果区域
-                    const proximity = 1 - (dist / fisheyeRadius);
-                    
-                    // 使用动态衰减幅度 (decayPower)
-                    const easedProximity = 1 - Math.pow(1 - proximity, decayPower); 
-                    
-                    // 使用动态初始大小 minScale 和动态最大放大倍数 maxScale
-                    scale = minScale + (maxScale - minScale) * easedProximity;
-                    opacity = 0.7 + (1.0 - 0.7) * easedProximity;
-                    
-                    // Z-index 逻辑：距离鼠标越近（proximity 越高），zIndex 越高
-                    // zIndex 范围从 2 (边缘) 到 10 (中心)
-                    zIndex = 2 + Math.floor(proximity * 8); 
+                
+                // 【聚焦模式覆盖】
+                if (isFocusMode && item.el.dataset.videoId === selectedItemId) {
+                    scale = focusScale; // 放大到最大缩放
+                    opacity = 1.0;
+                    zIndex = 100; // 确保在最前面
                     brightness = 1.0; 
+                } else if (isFocusMode) {
+                    // 非选中项
+                    scale = minScale * 0.5; // 缩小非选中项
+                    opacity = 0.2;
+                    zIndex = 1;
+                    brightness = 0.5;
+                } else {
+                    // 【正常鱼眼模式】
+                    const dx = fisheyeCenterX - adjustedItemCenterX;
+                    const dy = fisheyeCenterY - adjustedItemCenterY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist >= fisheyeRadius) { 
+                        
+                        opacity = 0.7;
+                        
+                        // --- 3. 闪烁效果 (Twinkling: 亮度 + 大小) ---
+                        item.twinklePhase += (0.02 + Math.random() * 0.01) * item.twinkleSpeed;
+                        const sineVal = (Math.sin(item.twinklePhase) + 1) / 2;
+                        
+                        const minBrightness = 0.2; 
+                        const maxBrightness = 1.4; 
+                        const brightnessRange = maxBrightness - minBrightness; 
+                        brightness = minBrightness + (brightnessRange * sineVal);
+                        
+                        const minTwinkleScale = minScale * 0.70; 
+                        const maxTwinkleScale = minScale * 1.30; 
+                        const scaleRange = maxTwinkleScale - minTwinkleScale;
+                        
+                        const sineTwinkleScale = (Math.sin(item.twinklePhase) + 1) / 2; 
+                        scale = minTwinkleScale + (scaleRange * sineTwinkleScale); 
+                        
+                    } else {
+                        // 鱼眼效果区域
+                        const proximity = 1 - (dist / fisheyeRadius);
+                        
+                        const easedProximity = 1 - Math.pow(1 - proximity, decayPower); 
+                        
+                        scale = minScale + (maxScale - minScale) * easedProximity;
+                        opacity = 0.7 + (1.0 - 0.7) * easedProximity;
+                        
+                        zIndex = 2 + Math.floor(proximity * 8); 
+                        brightness = 1.0; 
+                    }
                 }
 
                 item.el.style.transform = `translateZ(0) scale(${scale})`;
@@ -1041,6 +1410,8 @@
             modal.classList.add('hidden');
             videoPlayer.pause();
             videoPlayer.src = ''; 
+            // 从视频播放返回，重置聚焦模式
+            resetFocusAndScale(); 
             isMouseActive = true; 
             startAnimationLoop();
         }
@@ -1050,13 +1421,24 @@
 
         <!-- 顶部内容区域/编辑模式 -->
         <div id="top-content-area" class="fixed top-0 left-0 right-0 p-8 md:p-12 z-20 text-white pointer-events-none transition-all duration-300">
+            
+            <!-- 【修复】新增独立控制条，确保切换按钮始终可见 -->
+            <div id="admin-persistent-controls" class="absolute top-8 right-8 md:top-12 md:right-12 z-30 flex space-x-4 pointer-events-auto">
+                <!-- 视图切换按钮 -->
+                <button id="view-toggle-btn" 
+                    class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-150 hidden" 
+                    onclick="switchView(window.currentView === 'grid' ? 'table' : 'grid')">
+                    切换到列表编辑
+                </button>
+            </div>
+            
             <div id="content-display" class="flex flex-col">
                 <h1 id="main-title" class="text-white text-4xl font-extrabold cursor-text transition-colors duration-500 hover:text-yellow-400 pointer-events-auto" onclick="toggleEditMode(true)">3D&Motion Creative&Production</h1>
                 <p id="sub-text" class="text-gray-400 text-base font-normal cursor-text transition-colors duration-500 hover:text-gray-200 pointer-events-auto" onclick="toggleEditMode(true)">Powerd by REDesign</p>
             </div>
 
             <!-- 编辑模式 UI (Admin Only) -->
-            <div id="edit-mode-container" class="hidden bg-gray-900/90 backdrop-blur-sm p-6 rounded-xl shadow-2xl pointer-events-auto">
+            <div id="edit-mode-container" class="hidden bg-gray-900/90 backdrop-blur-sm p-6 rounded-xl shadow-2xl pointer-events-auto max-w-4xl">
                 <h2 class="text-xl font-bold mb-4 text-red-400">顶部内容及视觉参数编辑 (Admin)</h2>
                 
                 <div class="space-y-4">
@@ -1150,6 +1532,13 @@
                 </div>
             </div>
         </div>
+        
+        <!-- 管理员表格视图容器 (新增) -->
+        <div id="admin-table-view" class="fixed inset-0 p-4 md:p-12 z-10 hidden overflow-auto pointer-events-auto">
+            <h1 class="text-3xl font-bold mb-4 text-red-400">网格素材列表编辑 (共 ${TOTAL_ITEMS} 个项目)</h1>
+            <!-- 表格内容将由 JavaScript 填充 -->
+        </div>
+
 
         <!-- Admin Toggle Button (始终可见，但功能受限) -->
         <button id="admin-toggle-btn" onclick="handleAdminToggle()" 
@@ -1176,29 +1565,6 @@
             </div>
         </div>
 
-        <!-- Admin Item Edit Modal -->
-        <div id="item-edit-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex justify-center items-center hidden transition-opacity duration-300">
-            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl w-full max-w-lg">
-                <h2 class="text-xl font-bold text-red-400 mb-4">编辑网格项目 <span id="item-edit-id" class="text-sm text-gray-400"></span></h2>
-                
-                <div class="space-y-4 text-white">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300">图像 URL (Image URL - 留空则显示颜色)</label>
-                        <input id="edit-image-url" type="text" placeholder="https://example.com/image.jpg" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-300">视频 URL (Video URL - 播放时使用)</label>
-                        <input id="edit-video-url" type="text" placeholder="https://example.com/video.mp4" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2">
-                    </div>
-                </div>
-
-                <div class="flex space-x-4 mt-6">
-                    <button class="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition duration-150" onclick="saveItemChanges()">保存项目</button>
-                    <button class="px-4 py-2 bg-gray-500 text-white font-semibold rounded-lg hover:bg-gray-600 transition duration-150" onclick="closeItemEditPanel()">取消</button>
-                </div>
-            </div>
-        </div>
-        
         <!-- Admin Auth Modal -->
         <div id="auth-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex justify-center items-center hidden transition-opacity duration-300">
             <div class="bg-gray-800 p-6 rounded-xl shadow-2xl w-full max-w-sm">
@@ -1223,7 +1589,7 @@
                 </div>
             </div>
         </div>
-
+        <!-- item-edit-modal 已被移除 -->
     </div>
 </body>
 </html>
