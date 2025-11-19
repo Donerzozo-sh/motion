@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title id="web-title">多媒体设计组 | 设计作品集</title>
+    <title id="web-title">灵感矩阵 | 设计作品集</title>
     <!-- 引入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -65,10 +65,32 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot, collection, query, getDocs, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'; 
-        const firebaseConfigString = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
-        const firebaseConfig = JSON.parse(firebaseConfigString);
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // ======================================================================
+        // ** 【🔥🔥🔥 关键修复区域：手动配置 Firebase Firestoe 🔥🔥🔥】 **
+        // ======================================================================
+        
+        // 1. 应用 ID (保持不变或使用您的真实项目ID)
+        // 这个 ID 用于构建 Firestore 路径：/artifacts/{appId}/public/data/...
+        const appId = 'default-app-id'; // 建议将其替换为您的 Firebase 项目 ID (e.g. your-project-name)
+
+        // 2. Firebase 配置对象 (必须替换为您的真实配置 JSON)
+        // 请在您的 Firebase 控制台 -> 项目设置 -> 您的应用 (Web) 中获取此配置
+        const firebaseConfig = {
+            apiKey: "YOUR_REAL_API_KEY_HERE",            // <-- 替换此行
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com", // <-- 替换此行
+            projectId: "YOUR_PROJECT_ID",                  // <-- 替换此行
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",  // <-- 替换此行
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID", // <-- 替换此行
+            appId: "YOUR_APP_ID",                          // <-- 替换此行
+        };
+        
+        // 3. 初始身份验证令牌 (在 GitHub Pages 环境中无效，使用 null 强制匿名登录)
+        const initialAuthToken = null; 
+        
+        // ======================================================================
+        // ** 修复配置结束 **
+        // ======================================================================
 
         // --- Firebase & State Variables ---
         let db, auth; 
@@ -121,7 +143,7 @@
         const DEFAULT_CONTENT = {
             title: "3D&Motion Creative&Production",
             subtitle: "Powerd by REDesign",
-            webTitle: "多媒体设计组 | 设计作品集",
+            webTitle: "灵感矩阵 | 设计作品集",
             titleStyle: {
                 size: 'text-8xl', 
                 weight: 'font-extrabold',
@@ -152,6 +174,7 @@
         let isAdminMode = false;
         let editingItemId = null; 
 
+        // 使用硬编码的 appId 来构建 Firestore 路径
         const getTopBannerDocPath = (appIdentifier) => `/artifacts/${appIdentifier}/public/data/homepage_content/top_banner`;
         const getGridCollectionPath = (appIdentifier) => `/artifacts/${appIdentifier}/public/data/grid_items`;
 
@@ -236,6 +259,7 @@
             const username = authUsernameEl.value.trim();
             const password = authPasswordEl.value.trim();
             
+            // 简单硬编码的管理员凭证
             const correctUsername = 'admin';
             const correctPassword = '1234'; 
 
@@ -299,7 +323,8 @@
             const newTitle = editTitleEl.value.trim();
             const newSubtitle = editSubtitleEl.value.trim();
 
-            if (isLocalMode || !db || !appId) return console.error("Firestore is not initialized. Cannot save in local mode.");
+            // 检查：如果 Firebase 未初始化或处于本地模式，则不能保存
+            if (isLocalMode || !db || !appId) return console.error("Firestore is not initialized. Cannot save in local mode. Please check Firebase config.");
             if (!isAdminMode) return console.error("Permission denied. Admin mode required.");
 
             const docRef = doc(db, getTopBannerDocPath(appId));
@@ -343,7 +368,7 @@
                  return;
             }
             isLocalMode = true;
-            console.warn("Firebase configuration missing or initialization failed. Running in Local Mode with default data.");
+            console.warn("Firebase connection failed. Running in Local Mode (Read-Only) with default data.");
             
             // 1. 立即应用默认内容
             document.title = DEFAULT_CONTENT.webTitle; 
@@ -824,11 +849,11 @@
             
             setupDOMAndListeners(); // <-- 必须在操作 DOM 之前运行
 
-            // 检查 Firebase 配置是否有效
-            const hasFirebaseConfig = Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey; 
+            // 检查 Firebase 配置是否有效 (现在是检查硬编码的配置)
+            const hasFirebaseConfig = Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey !== 'YOUR_REAL_API_KEY_HERE'; 
 
             if (!hasFirebaseConfig) {
-                window.runLocalFallback(); // 如果配置缺失，运行本地回退
+                window.runLocalFallback(); // 如果配置缺失或使用占位符，运行本地回退
                 return;
             }
 
@@ -842,7 +867,9 @@
                 // --- 1. 尝试执行身份验证 ---
                 if (initialAuthToken) {
                     await signInWithCustomToken(auth, initialAuthToken).catch(e => { // 使用 auth
-                        console.error("Custom token sign-in failed:", e);
+                        console.error("Custom token sign-in failed (ignored for GH Pages):", e);
+                        // 即使 custom token 失败，也尝试匿名登录
+                        signInAnonymously(auth);
                     });
                 } else {
                     await signInAnonymously(auth).catch(e => { // 使用 auth
@@ -1211,8 +1238,4 @@
 
     </div>
 </body>
-
 </html>
-
-
-
