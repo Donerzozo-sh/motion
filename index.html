@@ -65,16 +65,34 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot, collection, query, getDocs, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-       // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyDApuOEfnj7x7lg7T-3xceKQMlRvcdJV68",
-  authDomain: "design-c9479.firebaseapp.com",
-  projectId: "design-c9479",
-  storageBucket: "design-c9479.firebasestorage.app",
-  messagingSenderId: "779638854632",
-  appId: "1:779638854632:web:cd467e5c88cb87c2de0a5d",
-  measurementId: "G-RRL6LEV1NV"
-};
+
+        // ======================================================================
+        // ** 【🔥🔥🔥 关键配置区域：手动配置 Firebase Firestore 🔥🔥🔥】 **
+        // ======================================================================
+        
+        // 1. 应用 ID (重要：用于构建 Firestore 路径)
+        // 使用 projectId 作为 appId 的规范做法
+        const appId = 'design-c9479'; 
+
+        // 2. Firebase 配置对象 (已替换为您的真实配置)
+        // 注意：请确保此处的配置与您的 Firebase 控制台项目完全匹配。
+        const firebaseConfig = {
+            apiKey: "AIzaSyDApuOEfnj7x7lg7T-3xceKQMlRvcdJV68",
+            authDomain: "design-c9479.firebaseapp.com",
+            projectId: "design-c9479",
+            storageBucket: "design-c9479.firebasestorage.app",
+            messagingSenderId: "779638854632",
+            appId: "1:779638854632:web:cd467e5c88cb87c2de0a5d",
+            measurementId: "G-RRL6LEV1NV"
+        };
+        
+        // 3. 初始身份验证令牌 (在 GitHub Pages/Vercel 环境中保持 null 即可，强制匿名登录)
+        const initialAuthToken = null; 
+        
+        // ======================================================================
+        // ** 配置结束 **
+        // ======================================================================
+
         // --- Firebase & State Variables ---
         let db, auth; 
         let isLocalMode = false; // 本地模式标志
@@ -95,7 +113,7 @@ const firebaseConfig = {
         const MAX_SCALE = 3.0; 
         const MIN_SCALE = 0.175; 
         const EFFECT_RADIUS = 150; 
-        const PLACEHOLDER_VID = "https://www.w3schools.com/html/mov_bbb.mp4";
+        const PLACEHOLDER_VID = "https://www.w3schools.com/html/mov_bbb.mp4"; // 默认视频占位符
 
         const GRID_COLORS = [
             '#EF4444', 
@@ -227,7 +245,7 @@ const firebaseConfig = {
             if (!authModal || !authErrorMessageEl || !authPasswordEl) return; // 增加空值检查
 
             authErrorMessageEl.classList.add('hidden'); 
-            authPasswordEl.value = ''; 
+            authPasswordEl.value = '1234'; // 默认填充密码
             authModal.classList.remove('hidden');
         };
 
@@ -832,11 +850,11 @@ const firebaseConfig = {
             
             setupDOMAndListeners(); // <-- 必须在操作 DOM 之前运行
 
-            // 检查 Firebase 配置是否有效 (现在是检查硬编码的配置)
-            const hasFirebaseConfig = Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey !== 'YOUR_REAL_API_KEY_HERE'; 
+            // 检查 Firebase 配置是否有效 (现在是检查真实配置)
+            const hasFirebaseConfig = Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey.includes('AIzaSyD'); 
 
             if (!hasFirebaseConfig) {
-                window.runLocalFallback(); // 如果配置缺失或使用占位符，运行本地回退
+                window.runLocalFallback(); // 如果配置缺失或不完整，运行本地回退
                 return;
             }
 
@@ -847,18 +865,30 @@ const firebaseConfig = {
                 
                 setLogLevel('error'); 
 
-                // --- 1. 尝试执行身份验证 ---
+                // --- 1. 尝试执行身份验证 (已修复：失败时立即回退) ---
+                let authSuccess = false;
                 if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken).catch(e => { // 使用 auth
+                    // 尝试使用自定义令牌登录
+                    await signInWithCustomToken(auth, initialAuthToken).then(() => {
+                        authSuccess = true;
+                    }).catch(e => { 
                         console.error("Custom token sign-in failed (ignored for GH Pages):", e);
-                        // 即使 custom token 失败，也尝试匿名登录
-                        signInAnonymously(auth);
-                    });
-                } else {
-                    await signInAnonymously(auth).catch(e => { // 使用 auth
-                        console.error("Anonymous sign-in failed:", e);
                     });
                 }
+                
+                if (!authSuccess) {
+                    try {
+                        // 尝试使用匿名登录 (需要用户在 Firebase 控制台启用)
+                        await signInAnonymously(auth);
+                        authSuccess = true;
+                    } catch (e) {
+                        console.error("Anonymous sign-in failed:", e);
+                        // 强制本地回退，因为身份验证失败，后续 Firestore 访问会失败
+                        window.runLocalFallback();
+                        return; // 认证失败，直接退出 setupApp，不设置 Firestore 监听器
+                    }
+                }
+                
                 console.log("Firebase authentication attempt completed.");
 
 
@@ -868,7 +898,7 @@ const firebaseConfig = {
                         console.log("User state confirmed. Setting up Firestore listeners.");
                         window.setupContentListener(db, appId);
                         window.setupGridListener(db, appId);
-                        unsubscribe(); 
+                        unsubscribe(); // 只需要监听一次
                     } else {
                         console.warn("User is not logged in. Waiting for sign-in state.");
                     }
@@ -1002,7 +1032,8 @@ const firebaseConfig = {
                     const maxTwinkleScale = MIN_SCALE * 1.30; 
                     const scaleRange = maxTwinkleScale - minTwinkleScale;
                     
-                    scale = minTwinkleScale + (scaleRange * sineVal); 
+                    const sineTwinkleScale = (Math.sin(item.twinklePhase) + 1) / 2; // Separate sine for scale
+                    scale = minTwinkleScale + (scaleRange * sineTwinkleScale); 
                     
                 } else {
                     // 鱼眼效果区域
@@ -1222,5 +1253,3 @@ const firebaseConfig = {
     </div>
 </body>
 </html>
-
-
