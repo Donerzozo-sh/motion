@@ -1,32 +1,39 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
+<!DOCTYPE html><html lang="zh-CN"><head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title id="web-title">灵感矩阵 | 设计作品集</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com  "></script>
     <style>
+        /* 强制使用 Helvetica Now Display 字体，并提供系统回退 */
         body {
             font-family: 'Helvetica Now Display', 'Helvetica Neue', 'Arial', sans-serif;
+            /* 隐藏滚动条，打造应用感 */
             overflow: hidden;
-            background: #000;
-            user-select: none;
+            padding-top: 0; 
+            background-color: #000;
             min-height: 100vh;
+            user-select: none;
         }
+
         #grid-container {
-            width: 140vw;
+            cursor: default; 
+            /* 保持较大的容器尺寸以允许鱼眼效果放大 */
+            width: 140vw; 
             height: 140vh;
-            position: absolute;
-            inset: 0;
-            margin: auto;
-            display: grid;
-            transform-style: preserve-3d;
         }
+
         .grid-item {
-            transition: transform .15s cubic-bezier(.4,0,.2,1), opacity .15s, filter .15s;
+            /* 关键：稍微增加过渡时间 (0.1s -> 0.15s) 以提升视觉平滑感 */
+            transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), 
+                        opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+                        filter 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+            
             will-change: transform, opacity, filter;
-            opacity: .7;
+            opacity: 0.7;
         }
+        
+        /* 管理表格中的缩略图样式 */
         .table-thumbnail {
             width: 60px;
             height: 60px;
@@ -34,333 +41,1563 @@
             border-radius: 4px;
             border: 1px solid #4B5563;
         }
-        .admin-table-row:hover {
-            background-color: #374151;
+        
+        .admin-table-row {
+            transition: background-color 0.15s;
         }
+
+        .admin-table-row:hover {
+            background-color: #374151; /* hover:bg-gray-700 */
+        }
+        
         .selected-row {
-            background-color: #EF4444 !important;
+            background-color: #EF4444 !important; /* bg-red-500 */
+        }
+
+        /* 隐藏原生颜色选择器的输入框 */
+        input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+        input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 6px;
         }
     </style>
-</head>
-<body class="text-white overflow-hidden">
+    <!-- 引入 Firebase SDK (需要 Firestore 和 Auth) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js  ";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js  ";
+        // 导入 updateDoc 用于内联编辑
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, getDocs, setLogLevel, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js  ";
 
-<!-- 顶部内容 -->
-<div id="top-content-area" class="fixed top-0 left-0 right-0 p-8 md:p-12 z-20 pointer-events-none">
-    <div id="admin-persistent-controls" class="absolute top-8 right-8 z-30 flex space-x-4 pointer-events-auto">
-        <button id="view-toggle-btn" class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition hidden" onclick="switchView(currentView==='grid'?'table':'grid')">切换到列表编辑</button>
-    </div>
-    <div id="content-display" class="flex flex-col pointer-events-auto">
-        <h1 id="main-title" class="text-4xl md:text-8xl font-extrabold cursor-text transition-colors hover:text-yellow-400">3D&Motion Creative&Production</h1>
-        <p id="sub-text" class="text-base md:text-2xl text-gray-400 cursor-text transition-colors hover:text-gray-200">Powered by REDesign</p>
-    </div>
-</div>
+        // ==============================================================================
+        // ** 【🔥🔥🔥 关键配置区域：手动配置 Firebase Firestore 🔥🔥🔥】 **
+        // ==============================================================================
+        
+        // 1. 应用 ID (重要：用于构建 Firestore 路径)
+        const appId = 'design-c9479'; 
 
-<!-- 管理员表格视图 -->
-<div id="admin-table-view" class="fixed inset-0 p-4 md:p-12 z-10 hidden overflow-auto pointer-events-auto">
-    <h1 class="text-3xl font-bold mb-4 text-red-400">网格素材列表编辑（共 60 项）</h1>
-    <div id="admin-table-container"></div>
-</div>
+        // 2. Firebase 配置对象 (已替换为您的真实配置)
+        const firebaseConfig = {
+            apiKey: "AIzaSyDApuOEfnj7x7lg7T-3xceKQMlRvcdJV68",
+            authDomain: "design-c9479.firebaseapp.com",
+            projectId: "design-c9479",
+            storageBucket: "design-c9479.firebasestorage.app",
+            messagingSenderId: "779638854632",
+            appId: "1:779638854632:web:cd467e5c88cb87c2de0a5d",
+            measurementId: "G-RRL6LEV1NV"
+        };
+        
+        // 3. 初始身份验证令牌 (在 GitHub Pages/Vercel 环境中保持 null 即可，强制匿名登录)
+        const initialAuthToken = null; 
+        
+        // ==============================================================================
+        // ** 配置结束 **
+        // ==============================================================================
 
-<!-- 版权/管理员触发 -->
-<div id="admin-toggle-btn" class="fixed bottom-4 right-4 z-50 text-gray-400 text-sm font-medium pointer-events-auto cursor-default">
-    2025 <span class="cursor-pointer hover:text-white" onclick="handleAdminToggle()">©</span> All Rights Reserved By REDesign
-</div>
+        // --- Firebase & State Variables ---
+        let db, auth; 
+        let isLocalMode = false;
 
-<!-- 网格容器 -->
-<div id="grid-container"></div>
+        // --- DOM 元素声明 ---
+        let gridContainer, modal, videoPlayer, closeModal, mainTitleEl, subTextEl;
+        let editContainer, contentDisplay, editTitleEl, editSubtitleEl, topContentArea;
+        let editWebTitleEl, editTitleSizeEl, editTitleWeightEl, editTitleColorPickerEl, editTitleSpacingEl;
+        let editSubtitleSizeEl, editSubtitleWeightEl, editSubtitleColorPickerEl, editSubtitleSpacingEl;
+        let adminToggleBtn, viewToggleBtn;
+        let authModal, authUsernameEl, authPasswordEl, authErrorMessageEl, adminTableContainer;
+        
+        // ** 视觉参数编辑元素 **
+        let editFisheyeRadiusEl, editDecayPowerEl, editMinScaleEl, editMaxScaleEl;
+        let editParallaxSmoothingEl; 
+        let editGridGapEl; // 【新增】网格间距元素
 
-<!-- 视频模态框 -->
-<div id="video-modal" class="fixed inset-0 bg-black/90 z-50 flex justify-center items-center hidden">
-    <div class="relative w-full max-w-4xl aspect-video rounded-xl overflow-hidden">
-        <video id="video-player" class="w-full h-full object-cover" controls autoplay playsinline></video>
-        <button id="close-modal" class="absolute top-4 right-4 text-white p-2 rounded-full bg-black/50 hover:bg-black/80" onclick="closeVideoModal()">✕</button>
-    </div>
-</div>
 
-<!-- Firebase 与业务脚本 -->
-<script type="module">
-/* ==================  Firebase 初始化  ================== */
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
-import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
-import { getFirestore, doc, updateDoc, collection, onSnapshot } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+        // --- 配置/状态变量 ---
+        const NUM_COLS = 10; 
+        const NUM_ROWS = 6; 
+        const TOTAL_ITEMS = NUM_COLS * NUM_ROWS; // 60
+        const PLACEHOLDER_VID = "https://www.w3schools.com/html/mov_bbb.mp4  "; // 默认视频占位符
 
-const firebaseConfig = {
-    apiKey: "AIzaSyDApuOEfnj7x7lg7T-3xceKQMlRvcdJV68",
-    authDomain: "design-c9479.firebaseapp.com",
-    projectId: "design-c9479",
-    storageBucket: "design-c9479.firebasestorage.app",
-    messagingSenderId: "779638854632",
-    appId: "1:779638854632:web:cd467e5c88cb87c2de0a5d"
-};
-const appId = 'design-c9479';
-const PLACEHOLDER_VID = "https://www.w3schools.com/html/mov_bbb.mp4";
+        // ** 动态交互参数 **
+        let currentFisheyeRadius = 300;
+        let currentDecayPower = 2.0; // 鱼眼衰减幅度 (指数)
+        let currentMinScale = 0.175; // 初始大小
+        let currentMaxScale = 3.0; // 最大放大倍数
+        let currentParallaxSmoothing = 0.2; // 【动态】平滑度参数 (回滚后的默认值)
+        let currentGridGap = 1; // 【新增】网格间距 (px)
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-await signInAnonymously(auth);
+        // 固定的视差强度
+        const PARALLAX_INTENSITY = 0.1; 
+        
+        // 【新增状态变量】
+        window.currentView = 'grid'; // 'grid' | 'table'
+        let isAdminMode = false;
+        let selectedItemId = null; // 当前在表格中选中的 Item ID
+        let isFocusMode = false; // 是否处于聚焦模式
+        
+        // 【新增】中心距离排序映射
+        let CENTER_DISTANCE_MAP = { 
+            newIdToOriginalIndex: Array.from({ length: TOTAL_ITEMS }, (_, i) => i), // 默认初始化
+            originalIndexToNewId: Array.from({ length: TOTAL_ITEMS }, (_, i) => i) 
+        };
 
-/* ==================  全局变量  ================== */
-const TOTAL_ITEMS = 60;
-const GRID_COLS = 10;
-const GRID_ROWS = 6;
-let currentView = 'grid';
-let isAdminMode = false;
-let itemData = {};                      // 本地缓存
-let items = [];                         // DOM 元素缓存
-let mousePos = { x: 0, y: 0 };
-let isMouseActive = false;
-let animationFrameId = null;
-let parallaxOffset = { x: 0, y: 0 };
-let selectedItemId = null;
-let isFocusMode = false;
 
-const CENTER_DISTANCE_MAP = (() => {
-    const map = [];
-    const C_TARGET = 4, R_TARGET = 2;
-    for (let i = 0; i < TOTAL_ITEMS; i++) {
-        const C = i % GRID_COLS, R = Math.floor(i / GRID_COLS);
-        map.push({ originalIndex: i, distance: (C_TARGET - C) ** 2 + (R_TARGET - R) ** 2 });
-    }
-    map.sort((a, b) => a.distance - b.distance || a.originalIndex - b.originalIndex);
-    const newIdToOriginalIndex = map.map(it => it.originalIndex);
-    const originalIndexToNewId = Array(TOTAL_ITEMS).fill(0);
-    newIdToOriginalIndex.forEach((orig, nid) => originalIndexToNewId[orig] = nid);
-    return { newIdToOriginalIndex, originalIndexToNewId };
-})();
+        const DEFAULT_FISHEYE_SETTINGS = {
+            radius: 300,
+            decayPower: 2.0,
+            minScale: 0.175,
+            maxScale: 3.0, 
+            parallaxSmoothing: 0.2, // 平滑度默认值
+            gridGap: 1, // 【新增】默认网格间距
+        };
 
-/* ==================  管理员保存修复  ================== */
-window.saveInlineItemChange = async (itemId, imgInputId, vidInputId, btn) => {
-    const img = document.getElementById(imgInputId).value.trim();
-    const vid = document.getElementById(vidInputId).value.trim();
+        const GRID_COLORS = [
+            '#EF4444', '#F97316', '#F59E0B', '#10B981', '#3B82F6', 
+            '#6366F1', '#8B5CF6', '#EC4899', '#FBBF24', '#A78BFA', 
+            '#4ADE80', '#FB7185', '#D946EF', '#06B6D4', 
+        ];
 
-    if (img && !isValidURL(img)) { alert('图片URL格式无效'); return; }
-    if (vid && !isValidURL(vid)) { alert('视频URL格式无效'); return; }
-
-    btn.disabled = true;
-    btn.textContent = '保存中...';
-    btn.className = 'px-3 py-1 bg-gray-500 text-white font-semibold rounded-lg';
-
-    const payload = { img: img || null, vid: vid || PLACEHOLDER_VID };
-    const colPath = `artifacts/${appId}/public/data/grid_items`;
-    const docRef = doc(db, colPath, itemId);
-
-    try {
-        await updateDoc(docRef, payload);
-        btn.textContent = '已保存';
-        btn.className = 'px-3 py-1 bg-green-600 text-white font-semibold rounded-lg';
-        setTimeout(() => { btn.textContent = '保存'; btn.disabled = false; btn.className = 'px-3 py-1 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700'; }, 2000);
-    } catch (err) {
-        console.error('保存失败', err);
-        btn.textContent = '保存失败';
-        btn.className = 'px-3 py-1 bg-red-600 text-white font-semibold rounded-lg';
-        setTimeout(() => { btn.textContent = '保存'; btn.disabled = false; btn.className = 'px-3 py-1 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700'; }, 4000);
-    }
-};
-
-function isValidURL(str) {
-    try { const u = new URL(str); return u.protocol === 'http:' || u.protocol === 'https:'; } catch { return false; }
-}
-
-/* ==================  渲染管理员表格  ================== */
-function renderAdminTable() {
-    const host = document.getElementById('admin-table-container');
-    if (!host) return;
-    let html = `<div class="overflow-x-auto h-[80vh] bg-gray-900/90 backdrop-blur-sm rounded-xl shadow-2xl p-4">
-        <table class="min-w-full divide-y divide-gray-700"><thead class="sticky top-0 bg-gray-900/95">
-        <tr><th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase w-16">ID</th>
-            <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase w-20">预览</th>
-            <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase w-24">位置</th>
-            <th class="px-3 py-3 text-left text-xs font-medium text-gray-300">图片 URL</th>
-            <th class="px-3 py-3 text-left text-xs font-medium text-gray-300">视频 URL</th>
-            <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 w-24">操作</th></tr></thead><tbody class="divide-y divide-gray-800">`;
-    for (let newId = 0; newId < TOTAL_ITEMS; newId++) {
-        const origIdx = CENTER_DISTANCE_MAP.newIdToOriginalIndex[newId];
-        const itemId = `item_${origIdx}`;
-        const dat = itemData[itemId] || {};
-        const img = dat.img || '';
-        const vid = dat.vid || PLACEHOLDER_VID;
-        const preview = img || `https://placehold.co/60x60/374151/FFFFFF?text=${origIdx}`;
-        html += `<tr id="row-${itemId}" class="admin-table-row text-gray-300 cursor-pointer" data-item-id="${itemId}" onclick="selectItem('${itemId}',this)">
-          <td class="px-3 py-2 whitespace-nowrap text-sm font-medium">${newId}</td>
-          <td class="px-3 py-2 whitespace-nowrap"><img src="${preview}" class="table-thumbnail" onerror="this.src='https://placehold.co/60x60/374151/FFFFFF?text=${origIdx}'"></td>
-          <td class="px-3 py-2">${renderLocationThumbnail(origIdx, dat.bgColor || '#374151')}</td>
-          <td class="px-3 py-2 text-sm max-w-sm"><input id="img-input-${itemId}" type="text" value="${img}" placeholder="Image URL" class="w-full text-xs rounded-md bg-gray-700 border-gray-600 text-white p-1 focus:ring-red-500 focus:border-red-500"></td>
-          <td class="px-3 py-2 text-sm max-w-sm"><input id="vid-input-${itemId}" type="text" value="${vid}" placeholder="Video URL" class="w-full text-xs rounded-md bg-gray-700 border-gray-600 text-white p-1 focus:ring-red-500 focus:border-red-500"></td>
-          <td class="px-3 py-2 whitespace-nowrap text-sm"><button class="px-3 py-1 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition" onclick="event.stopPropagation(); saveInlineItemChange('${itemId}', 'img-input-${itemId}', 'vid-input-${itemId}', this);">保存</button></td>
-        </tr>`;
-    }
-    html += '</tbody></table></div>';
-    host.innerHTML = html;
-}
-
-function renderLocationThumbnail(index, highlightColor) {
-    let gridHtml = `<div class="w-[60px] h-[45px] grid gap-[1px] bg-gray-900 border border-gray-700 rounded-sm overflow-hidden" style="grid-template-columns: repeat(10, 1fr); grid-template-rows: repeat(6, 1fr);">`;
-    for (let i = 0; i < TOTAL_ITEMS; i++) {
-        gridHtml += `<div class="w-full h-full" style="background-color: ${i === index ? highlightColor : '#374151'};"></div>`;
-    }
-    gridHtml += '</div>';
-    return gridHtml;
-}
-
-/* ==================  视图 / 管理员开关  ================== */
-window.switchView = v => {
-    currentView = v;
-    const grid = document.getElementById('grid-container');
-    const table = document.getElementById('admin-table-view');
-    const btn = document.getElementById('view-toggle-btn');
-    if (v === 'table') {
-        grid.classList.add('hidden');
-        table.classList.remove('hidden');
-        renderAdminTable();
-        btn.textContent = '返回网格视图';
-    } else {
-        grid.classList.remove('hidden');
-        table.classList.add('hidden');
-        btn.textContent = '切换到列表编辑';
-    }
-};
-
-window.setAdminMode = on => {
-    isAdminMode = on;
-    document.getElementById('view-toggle-btn').classList.toggle('hidden', !on);
-    if (on) window.switchView('grid');
-};
-
-window.handleAdminToggle = () => {
-    if (isAdminMode) window.setAdminMode(false);
-    else {
-        const pw = prompt('密码：');
-        if (pw === '1234') window.setAdminMode(true);
-    }
-};
-
-/* ==================  网格交互  ================== */
-const GRID_COLORS = ['#EF4444','#F97316','#F59E0B','#10B981','#3B82F6','#6366F1','#8B5CF6','#EC4899','#FBBF24','#A78BFA','#4ADE80','#FB7185','#D946EF','#06B6D4'];
-
-function createGrid() {
-    const container = document.getElementById('grid-container');
-    container.innerHTML = '';
-    container.style.gridTemplateColumns = `repeat(${GRID_COLS}, 1fr)`;
-    for (let i = 0; i < TOTAL_ITEMS; i++) {
-        const itemId = `item_${i}`;
-        const color = GRID_COLORS[i % GRID_COLS];
-        const div = document.createElement('div');
-        div.className = 'grid-item aspect-square bg-cover bg-center cursor-pointer';
-        div.dataset.videoId = itemId;
-        div.style.backgroundColor = color;
-        div.style.transform = 'scale(0.175)';
-        div.style.opacity = '0.7';
-        container.appendChild(div);
-        items.push({ el: div, center: { x: 0, y: 0 } });
-    }
-    cacheItemPositions();
-}
-
-function cacheItemPositions() {
-    const old = document.getElementById('grid-container').style.transform;
-    document.getElementById('grid-container').style.transform = '';
-    items.forEach(it => {
-        const r = it.el.getBoundingClientRect();
-        it.center = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    });
-    document.getElementById('grid-container').style.transform = old;
-}
-
-/* 监听数据 → 更新本地缓存 → 重渲染表格 */
-onSnapshot(collection(db, `artifacts/${appId}/public/data/grid_items`), snap => {
-    snap.docChanges().forEach(chg => {
-        const id = chg.doc.id;
-        if (!id.startsWith('item_')) return;
-        itemData[id] = chg.doc.data();
-    });
-    if (currentView === 'table') renderAdminTable();
-});
-
-/* 鼠标鱼眼 + 视差 */
-let parallaxOffset = { x: 0, y: 0 };
-function updateFisheye() {
-    const vx = window.innerWidth / 2, vy = window.innerHeight / 2;
-    if (!isFocusMode) {
-        parallaxOffset.x += ((mousePos.x - vx) * 0.1 - parallaxOffset.x) * 0.2;
-        parallaxOffset.y += ((mousePos.y - vy) * 0.1 - parallaxOffset.y) * 0.2;
-    } else {
-        const it = items.find(i => i.el.dataset.videoId === selectedItemId);
-        if (it) {
-            parallaxOffset.x += (vx - it.center.x - parallaxOffset.x) * 0.05;
-            parallaxOffset.y += (vy - it.center.y - parallaxOffset.y) * 0.05;
+        function getColumnIndex(index) {
+            return index % NUM_COLS;
         }
-    }
-    document.getElementById('grid-container').style.transform = `translate3d(${parallaxOffset.x}px, ${parallaxOffset.y}px, 0)`;
 
-    if (isAdminMode && currentView === 'table') { animationFrameId = requestAnimationFrame(updateFisheye); return; }
-    if (isAdminMode) { animationFrameId = requestAnimationFrame(updateFisheye); return; }
-
-    /* 鱼眼缩放 */
-    const fx = mousePos.x, fy = mousePos.y, r = 300, min = 0.175, max = 3, pow = 2;
-    items.forEach(it => {
-        const dx = fx - (it.center.x + parallaxOffset.x);
-        const dy = fy - (it.center.y + parallaxOffset.y);
-        const dist = Math.hypot(dx, dy);
-        let scale = min, opacity = 0.7;
-        if (dist < r) {
-            const p = 1 - dist / r;
-            scale = min + (max - min) * (1 - Math.pow(1 - p, pow));
-            opacity = 0.7 + 0.3 * p;
+        function getColorForColumn(colIndex) {
+            return GRID_COLORS[colIndex % GRID_COLORS.length];
         }
-        it.el.style.transform = `scale(${scale})`;
-        it.el.style.opacity = opacity;
-    });
-    if (isMouseActive) animationFrameId = requestAnimationFrame(updateFisheye);
-}
 
-window.addEventListener('mousemove', e => {
-    mousePos.x = e.clientX; mousePos.y = e.clientY;
-    if (!isMouseActive) { isMouseActive = true; updateFisheye(); }
-});
-window.addEventListener('mouseleave', () => { isMouseActive = false; });
 
-/* 点击网格项 */
-document.getElementById('grid-container').addEventListener('click', e => {
-    const item = e.target.closest('.grid-item');
-    if (!item) return;
-    const id = item.dataset.videoId;
-    if (isAdminMode) {
-        window.switchView('table');
-        const row = document.getElementById(`row-${id}`);
-        if (row) { window.selectItem(id, row); row.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
-        return;
-    }
-    openVideoModal(itemData[id]?.vid || PLACEHOLDER_VID);
-});
+        const DEFAULT_CONTENT = {
+            title: "3D&Motion Creative&Production",
+            subtitle: "Powerd by REDesign",
+            webTitle: "灵感矩阵 | 设计作品集",
+            titleStyle: { size: 'text-8xl', weight: 'font-extrabold', color: '#FFFFFF', spacing: 'tracking-normal' },
+            subtitleStyle: { size: 'text-2xl', weight: 'font-normal', color: '#9CA3AF', spacing: 'tracking-normal' }
+        };
 
-function openVideoModal(src) {
-    const modal = document.getElementById('video-modal');
-    const player = document.getElementById('video-player');
-    player.src = src;
-    modal.classList.remove('hidden');
-    player.play().catch(() => {});
-}
-function closeVideoModal() {
-    const modal = document.getElementById('video-modal');
-    const player = document.getElementById('video-player');
-    modal.classList.add('hidden');
-    player.pause();
-    player.src = '';
-    resetFocus();
-}
-function resetFocus() {
-    isFocusMode = false;
-    selectedItemId = null;
-    document.querySelectorAll('.admin-table-row').forEach(r => r.classList.remove('selected-row'));
-}
+        let items = []; 
+        let itemData = {}; 
+        let mousePos = { x: 0, y: 0 }; 
+        let isMouseActive = false; 
+        let animationFrameId = null; 
+        let parallaxOffset = { x: 0, y: 0 }; 
+        let editingItemId = null; 
 
-/* 首次渲染 */
-window.addEventListener('DOMContentLoaded', () => {
-    createGrid();
-    renderAdminTable();
-    updateFisheye();
-});
-</script>
-</body>
-</html>
+        // 使用硬编码的 appId 来构建 Firestore 路径
+        const getSettingsDocPath = (appIdentifier) => `/artifacts/${appIdentifier}/public/data/homepage_content/settings`;
+        const getGridCollectionPath = (appIdentifier) => `/artifacts/${appIdentifier}/public/data/grid_items`;
+
+
+        // --- 样式辅助函数 (保持不变) ---
+
+        function applyTextStyles(element, styleData, isTitle) {
+            if (!element) return; 
+
+            const prefixesToClear = [
+                'text-', 'font-', 'tracking-' 
+            ];
+            
+            element.className = element.className.split(' ').filter(c => 
+                !prefixesToClear.some(prefix => c.startsWith(prefix))
+            ).join(' ');
+
+            if (styleData.size) element.classList.add(styleData.size);
+            if (styleData.weight) element.classList.add(styleData.weight);
+            if (styleData.spacing) element.classList.add(styleData.spacing);
+            
+            element.style.color = styleData.color || (isTitle ? '#FFFFFF' : '#9CA3AF');
+
+            if (isTitle) {
+                element.classList.add('mb-4', 'transition-colors', 'duration-500', 'hover:text-yellow-400', 'cursor-text');
+                element.classList.add('md:text-8xl'); 
+            } else {
+                element.classList.add('transition-colors', 'duration-500', 'hover:text-gray-200', 'cursor-text');
+                element.classList.add('md:text-2xl'); 
+            }
+        }
+        
+        /**
+         * 【新增函数】计算网格中心距离排序映射
+         * @returns {{newIdToOriginalIndex: number[], originalIndexToNewId: number[]}} 映射对象
+         */
+        function calculateCenterDistanceMapping() {
+            const mapping = [];
+            // 10x6 网格的中心点 (C, R) 是 (4.5, 2.5)
+            // 项目中心 (C_item, R_item) 是 (C+0.5, R+0.5)
+            // 距离平方 D^2 = (4.5 - (C+0.5))^2 + (2.5 - (R+0.5))^2 = (4-C)^2 + (2-R)^2
+            const C_TARGET = 4; 
+            const R_TARGET = 2; 
+
+            for (let i = 0; i < TOTAL_ITEMS; i++) {
+                const C = i % NUM_COLS;
+                const R = Math.floor(i / NUM_COLS);
+
+                const D_squared = Math.pow(C_TARGET - C, 2) + Math.pow(R_TARGET - R, 2);
+
+                // Store the original index (spatial index) and its distance score
+                mapping.push({ originalIndex: i, distance: D_squared, C, R });
+            }
+
+            // Sort by distance (ascending). Distance 0 is the closest (i=24).
+            // Use original index as secondary key for stable sorting
+            mapping.sort((a, b) => {
+                if (a.distance !== b.distance) {
+                    return a.distance - b.distance; 
+                }
+                return a.originalIndex - b.originalIndex; 
+            });
+
+            // Create the final index map: new ID -> original index
+            const newIdToOriginalIndex = mapping.map(item => item.originalIndex);
+            
+            // Create the reverse map: original index -> new ID
+            const originalIndexToNewId = new Array(TOTAL_ITEMS).fill(0);
+            newIdToOriginalIndex.forEach((originalIndex, newId) => {
+                originalIndexToNewId[originalIndex] = newId;
+            });
+
+            return { newIdToOriginalIndex, originalIndexToNewId };
+        }
+
+
+        /**
+         * 【新增函数】生成网格位置缩略图 HTML
+         * @param {number} index - 当前项目在网格中的原始空间索引 (0 to TOTAL_ITEMS - 1).
+         * @param {string} highlightColor - 用于高亮的颜色 (即项目的 bgColor).
+         * @returns {string} HTML string for the thumbnail grid.
+         */
+        function renderLocationThumbnail(index, highlightColor) {
+            const totalItems = NUM_COLS * NUM_ROWS; 
+            // 设定固定的尺寸 (60px x 45px)，gap 为 1px
+            let gridHtml = `<div class="w-[60px] h-[45px] grid gap-[1px] bg-gray-900 border border-gray-700 rounded-sm overflow-hidden" 
+                                style="grid-template-columns: repeat(${NUM_COLS}, 1fr); grid-template-rows: repeat(${NUM_ROWS}, 1fr);">`;
+
+            for (let i = 0; i < totalItems; i++) {
+                // 当前项目使用其自身的 bgColor，其他项目使用暗灰色 #374151
+                const bgColor = i === index ? highlightColor : '#374151'; 
+                gridHtml += `<div class="w-full h-full" style="background-color: ${bgColor};"></div>`;
+            }
+
+            gridHtml += `</div>`;
+            return gridHtml;
+        }
+
+
+        // --- Admin/Auth 逻辑 ---
+
+        window.setAdminMode = (mode) => {
+            isAdminMode = mode;
+            if (!adminToggleBtn || !topContentArea || !viewToggleBtn) return; 
+
+            // 获取版权信息中的©符号元素
+            const copyrightSymbol = adminToggleBtn.querySelector('span');
+            
+            if (mode) {
+                // ON: 高亮©符号为红色
+                copyrightSymbol.classList.add('text-red-400');
+                copyrightSymbol.classList.remove('text-gray-400', 'hover:text-white');
+                topContentArea.classList.add('border-b-4', 'border-red-600');
+                window.closeAuthModal(); 
+                
+                // ** 进入管理员模式时，立即复位网格缩放状态 **
+                resetGridScale();
+                console.log("Admin Mode activated. Grid scales reset.");
+                
+                // 默认切换到网格视图，并显示切换按钮
+                window.switchView('grid');
+                viewToggleBtn.classList.remove('hidden'); // 显示切换按钮
+
+            } else {
+                // OFF: 恢复©符号为默认灰色
+                copyrightSymbol.classList.remove('text-red-400');
+                copyrightSymbol.classList.add('text-gray-400', 'hover:text-white');
+                topContentArea.classList.remove('border-b-4', 'border-red-600');
+                viewToggleBtn.classList.add('hidden'); // 隐藏切换按钮
+                console.log("Admin Mode deactivated.");
+                
+                // 确保返回网格视图
+                document.getElementById('grid-container').classList.remove('hidden');
+                document.getElementById('admin-table-view').classList.add('hidden');
+            }
+        };
+        
+        /**
+         * 切换视图：网格 <-> 表格
+         */
+        window.switchView = (view) => {
+            if (!isAdminMode) return; 
+
+            window.currentView = view; // 使用 window.currentView
+
+            const gridEl = document.getElementById('grid-container');
+            const tableEl = document.getElementById('admin-table-view');
+            const topEditContainer = document.getElementById('edit-mode-container');
+            const contentDisplayEl = document.getElementById('content-display');
+            const persistentControlsEl = document.getElementById('admin-persistent-controls');
+
+            if (view === 'table') {
+                isFocusMode = false; // 进入表格模式，退出聚焦
+                gridEl.classList.add('hidden');
+                tableEl.classList.remove('hidden');
+                renderAdminTable(); // 生成表格内容
+                
+                // 隐藏主标题编辑面板和主标题显示
+                topEditContainer.classList.add('hidden'); 
+                contentDisplayEl.classList.add('hidden');
+                
+                // 确保管理员控制条显示在最顶层
+                persistentControlsEl.classList.remove('z-30');
+                persistentControlsEl.classList.add('z-50'); 
+                
+                viewToggleBtn.textContent = '返回网格视图';
+            } else {
+                // 切换回网格视图时，重置聚焦/缩放
+                resetFocusAndScale(); 
+                gridEl.classList.remove('hidden');
+                tableEl.classList.add('hidden');
+                
+                // 切换回网格视图时，显示主标题
+                contentDisplayEl.classList.remove('hidden');
+                window.toggleEditMode(false); // 确保设置面板折叠
+                
+                persistentControlsEl.classList.remove('z-50');
+                persistentControlsEl.classList.add('z-30');
+                
+                viewToggleBtn.textContent = '切换到列表编辑';
+            }
+        };
+        
+        /**
+         * 重置聚焦和缩放
+         */
+        function resetFocusAndScale() {
+            isFocusMode = false;
+            selectedItemId = null;
+            resetGridScale(); // 复位网格元素大小
+            resetGrid(); // 复位网格偏移
+            
+            // 移除所有行高亮
+            document.querySelectorAll('.admin-table-row').forEach(row => {
+                row.classList.remove('selected-row');
+            });
+
+            // 恢复鼠标动画
+            isMouseActive = true; 
+            startAnimationLoop();
+        }
+
+
+        window.handleAdminToggle = () => {
+            if (!adminToggleBtn) return; 
+            if (isAdminMode) {
+                window.setAdminMode(false);
+                resetFocusAndScale(); // 退出管理员模式时重置所有状态
+            } else {
+                window.openAuthModal();
+            }
+        };
+
+        window.openAuthModal = () => {
+            if (!authModal || !authErrorMessageEl || !authPasswordEl) return; 
+
+            authErrorMessageEl.classList.add('hidden'); 
+            // 移除自动填充密码，改为清空
+            authPasswordEl.value = ''; 
+            authUsernameEl.value = 'admin'; // 保留用户名填充
+            authModal.classList.remove('hidden');
+        };
+
+        window.closeAuthModal = () => {
+            if (!authModal) return; 
+            authModal.classList.add('hidden');
+        };
+
+        window.handleAdminLogin = () => {
+            if (!authUsernameEl || !authPasswordEl || !authErrorMessageEl) return; 
+
+            const username = authUsernameEl.value.trim();
+            const password = authPasswordEl.value.trim();
+            
+            const correctUsername = 'admin';
+            const correctPassword = '1234'; 
+
+            if (username === correctUsername && password === correctPassword) {
+                window.setAdminMode(true);
+            } else {
+                authErrorMessageEl.classList.remove('hidden');
+                authPasswordEl.value = ''; // 登录失败时清空密码
+            }
+        };
+
+        /**
+         * 切换编辑模式 (顶部文本 & 视觉参数)
+         */
+        window.toggleEditMode = (enable) => {
+            if (!isAdminMode || !editContainer || !contentDisplay || !mainTitleEl || !subTextEl) {
+                return; 
+            }
+            
+            if (enable) {
+                const titleStyle = mainTitleEl.dataset.style ? JSON.parse(mainTitleEl.dataset.style) : DEFAULT_CONTENT.titleStyle;
+                const subtitleStyle = subTextEl.dataset.style ? JSON.parse(subTextEl.dataset.style) : DEFAULT_CONTENT.subtitleStyle;
+
+                // 填充网站名称
+                document.getElementById('web-title').textContent = DEFAULT_CONTENT.webTitle; 
+                editWebTitleEl.value = document.getElementById('web-title').textContent;
+
+                // 填充文本内容
+                editTitleEl.value = mainTitleEl.textContent;
+                editSubtitleEl.value = subTextEl.textContent;
+
+                // 填充主标题样式
+                editTitleSizeEl.value = titleStyle.size;
+                editTitleWeightEl.value = titleStyle.weight;
+                editTitleColorPickerEl.value = titleStyle.color;
+                editTitleSpacingEl.value = titleStyle.spacing;
+
+                // 填充副标题样式
+                editSubtitleSizeEl.value = subtitleStyle.size;
+                editSubtitleWeightEl.value = subtitleStyle.weight;
+                editSubtitleColorPickerEl.value = subtitleStyle.color;
+                editSubtitleSpacingEl.value = subtitleStyle.spacing;
+                
+                // ** 填充视觉参数 **
+                editFisheyeRadiusEl.value = currentFisheyeRadius;
+                editDecayPowerEl.value = currentDecayPower;
+                editMinScaleEl.value = currentMinScale;
+                editMaxScaleEl.value = currentMaxScale; 
+                editParallaxSmoothingEl.value = currentParallaxSmoothing; // 填充平滑度
+                editGridGapEl.value = currentGridGap; // 【新增】填充网格间距
+                
+
+                contentDisplay.classList.add('hidden');
+                editContainer.classList.remove('hidden');
+            } else {
+                contentDisplay.classList.remove('hidden');
+                editContainer.classList.add('hidden');
+            }
+        };
+
+        /**
+         * 保存内容到 Firestore (顶部文本 & 视觉参数)
+         */
+        window.saveContent = async () => {
+            if (!editWebTitleEl || !editTitleEl || !editSubtitleEl || !editFisheyeRadiusEl) {
+                return console.error("Missing edit elements. Cannot save."); 
+            }
+
+            const newWebTitle = editWebTitleEl.value.trim(); 
+            const newTitle = editTitleEl.value.trim();
+            const newSubtitle = editSubtitleEl.value.trim();
+
+            if (isLocalMode || !db || !appId) return console.error("Firestore is not initialized. Cannot save in local mode. Please check Firebase config.");
+            if (!isAdminMode) return console.error("Permission denied. Admin mode required.");
+
+            const docRef = doc(db, getSettingsDocPath(appId));
+            
+            const newTitleStyle = {
+                size: editTitleSizeEl.value,
+                weight: editTitleWeightEl.value,
+                color: editTitleColorPickerEl.value,
+                spacing: editTitleSpacingEl.value,
+            };
+
+            const newSubtitleStyle = {
+                size: editSubtitleSizeEl.value,
+                weight: editSubtitleWeightEl.value,
+                color: editSubtitleColorPickerEl.value,
+                spacing: editSubtitleSpacingEl.value,
+            };
+            
+            // ** 收集新的视觉参数 (包括平滑度和网格间距) **
+            const newFisheyeSettings = {
+                radius: parseFloat(editFisheyeRadiusEl.value) || DEFAULT_FISHEYE_SETTINGS.radius,
+                decayPower: parseFloat(editDecayPowerEl.value) || DEFAULT_FISHEYE_SETTINGS.decayPower,
+                minScale: parseFloat(editMinScaleEl.value) || DEFAULT_FISHEYE_SETTINGS.minScale,
+                maxScale: parseFloat(editMaxScaleEl.value) || DEFAULT_FISHEYE_SETTINGS.maxScale, 
+                parallaxSmoothing: parseFloat(editParallaxSmoothingEl.value) || DEFAULT_FISHEYE_SETTINGS.parallaxSmoothing, // 收集平滑度
+                gridGap: parseInt(editGridGapEl.value) || DEFAULT_FISHEYE_SETTINGS.gridGap, // 【新增】收集网格间距
+            };
+
+            try {
+                await setDoc(docRef, {
+                    webTitle: newWebTitle || DEFAULT_CONTENT.webTitle, 
+                    title: newTitle || DEFAULT_CONTENT.title,
+                    subtitle: newSubtitle || DEFAULT_CONTENT.subtitle,
+                    titleStyle: newTitleStyle,
+                    subtitleStyle: newSubtitleStyle,
+                    fisheyeSettings: newFisheyeSettings, // 保存包含平滑度和网格间距的新视觉参数
+                    timestamp: new Date()
+                });
+                console.log("Content and Settings saved successfully.");
+                window.toggleEditMode(false);
+            } catch (e) {
+                console.error("Error saving document: ", e);
+            }
+        };
+
+        /**
+         * 本地回退逻辑：如果无法连接 Firebase，则使用默认数据并立即渲染。
+         */
+        window.runLocalFallback = () => {
+            if (!mainTitleEl || !subTextEl || !gridContainer) {
+                 console.error("Critical DOM elements not found for fallback.");
+                 return;
+            }
+            isLocalMode = true;
+            console.warn("Firebase connection failed. Running in Local Mode (Read-Only) with default data.");
+            
+            // 立即应用默认内容
+            document.title = DEFAULT_CONTENT.webTitle; 
+            mainTitleEl.textContent = DEFAULT_CONTENT.title;
+            subTextEl.textContent = DEFAULT_CONTENT.subtitle;
+            applyTextStyles(mainTitleEl, DEFAULT_CONTENT.titleStyle, true);
+            applyTextStyles(subTextEl, DEFAULT_CONTENT.subtitleStyle, false);
+            
+            // 应用默认视觉参数
+            currentFisheyeRadius = DEFAULT_FISHEYE_SETTINGS.radius;
+            currentDecayPower = DEFAULT_FISHEYE_SETTINGS.decayPower;
+            currentMinScale = DEFAULT_FISHEYE_SETTINGS.minScale;
+            currentMaxScale = DEFAULT_FISHEYE_SETTINGS.maxScale;
+            currentParallaxSmoothing = DEFAULT_FISHEYE_SETTINGS.parallaxSmoothing; // 应用默认平滑度
+            currentGridGap = DEFAULT_FISHEYE_SETTINGS.gridGap; // 应用默认网格间距
+
+            // 初始化中心距离映射
+            CENTER_DISTANCE_MAP = calculateCenterDistanceMapping();
+
+            // 初始化网格数据并渲染
+            initializeDefaultGridData(); 
+            createGrid(); 
+            startAnimationLoop(); 
+            window.setAdminMode(false); // 确保在回退模式下也应用正确的按钮样式
+        };
+
+
+        /**
+         * 监听 Firestore 上的内容变化
+         */
+        window.setupContentListener = (firestore, appIdentifier) => {
+            if (!mainTitleEl || !subTextEl) return; 
+            
+            const docRef = doc(firestore, getSettingsDocPath(appIdentifier)); 
+
+            onSnapshot(docRef, (docSnap) => {
+                let data = {};
+                if (docSnap.exists()) {
+                    data = docSnap.data();
+                }
+
+                // --- 1. 更新顶部文本和样式 ---
+                const currentWebTitle = data.webTitle || DEFAULT_CONTENT.webTitle; 
+                const currentTitle = data.title || DEFAULT_CONTENT.title;
+                const currentSubtitle = data.subtitle || DEFAULT_CONTENT.subtitle;
+                const currentTitleStyle = data.titleStyle || DEFAULT_CONTENT.titleStyle;
+                const currentSubtitleStyle = data.subtitleStyle || DEFAULT_CONTENT.subtitleStyle;
+
+                document.title = currentWebTitle; 
+                mainTitleEl.textContent = currentTitle;
+                subTextEl.textContent = currentSubtitle;
+
+                applyTextStyles(mainTitleEl, currentTitleStyle, true);
+                applyTextStyles(subTextEl, currentSubtitleStyle, false);
+
+                mainTitleEl.dataset.style = JSON.stringify(currentTitleStyle);
+                subTextEl.dataset.style = JSON.stringify(currentSubtitleStyle);
+
+                // --- 2. 更新视觉参数 ---
+                const settings = data.fisheyeSettings || DEFAULT_FISHEYE_SETTINGS;
+                currentFisheyeRadius = settings.radius;
+                currentDecayPower = settings.decayPower;
+                currentMinScale = settings.minScale;
+                currentMaxScale = settings.maxScale || DEFAULT_FISHEYE_SETTINGS.maxScale; 
+                currentParallaxSmoothing = settings.parallaxSmoothing || DEFAULT_FISHEYE_SETTINGS.parallaxSmoothing; // 更新平滑度
+                currentGridGap = settings.gridGap || DEFAULT_FISHEYE_SETTINGS.gridGap; // 【新增】更新网格间距
+                
+                // 确保网格更新初始大小和间距
+                updateGridDOM();
+
+            }, (error) => {
+                console.error("Error listening to content:", error);
+            });
+        };
+
+        /**
+         * 监听 Firestore 上的网格项目变化
+         */
+        window.setupGridListener = (firestore, appIdentifier) => {
+            if (!gridContainer) return; 
+            
+            const colRef = collection(firestore, getGridCollectionPath(appIdentifier)); 
+
+            onSnapshot(colRef, (snapshot) => {
+                let initialLoad = Object.keys(itemData).length === 0;
+                
+                const newItemsFromFirestore = {};
+                snapshot.docChanges().forEach(change => {
+                    const data = change.doc.data();
+                    const itemId = change.doc.id;
+                    const i = parseInt(itemId.split('_')[1]); // 原始空间索引
+                    
+                    // 检查索引是否在新范围内 (0-59)
+                    if (i >= TOTAL_ITEMS) return; 
+                    
+                    const colIndex = getColumnIndex(i);
+                    const defaultColor = getColorForColumn(colIndex);
+
+                    newItemsFromFirestore[itemId] = {
+                        img: data.img || null, 
+                        vid: data.vid || PLACEHOLDER_VID,
+                        bgColor: data.bgColor || defaultColor 
+                    };
+                });
+                
+                // 填充所有缺失的项目，确保 itemData 总是包含 TOTAL_ITEMS (60) 个键
+                for (let i = 0; i < TOTAL_ITEMS; i++) {
+                    const itemId = `item_${i}`;
+                    const colIndex = getColumnIndex(i);
+                    const defaultColor = getColorForColumn(colIndex);
+                    
+                    if (!newItemsFromFirestore[itemId]) {
+                        // 使用现有数据或默认数据进行填充
+                        newItemsFromFirestore[itemId] = itemData[itemId] || {
+                            img: null,
+                            vid: PLACEHOLDER_VID,
+                            bgColor: defaultColor
+                        };
+                    }
+                }
+                itemData = newItemsFromFirestore;
+
+
+                if (initialLoad) {
+                    createGrid();
+                } else {
+                    updateGridDOM();
+                }
+            }, async (error) => {
+                console.error("Error listening to grid items:", error);
+                if (Object.keys(itemData).length === 0) {
+                    await initializeDefaultGridData();
+                    createGrid();
+                }
+            });
+        };
+        
+        /**
+         * 初始化默认网格数据 (本地模式下不写入 DB)
+         */
+        async function initializeDefaultGridData() {
+            if (!gridContainer) return; 
+
+            if (isLocalMode) {
+                for (let i = 0; i < TOTAL_ITEMS; i++) {
+                    const itemId = `item_${i}`;
+                    const colIndex = getColumnIndex(i);
+                    itemData[itemId] = {
+                        img: null,
+                        vid: PLACEHOLDER_VID,
+                        bgColor: getColorForColumn(colIndex)
+                    };
+                }
+                return; 
+            }
+
+            if (!db || !appId) return console.error("Firestore DB/App ID not ready for default initialization.");
+
+            const colRef = collection(db, getGridCollectionPath(appId));
+            const snapshot = await getDocs(colRef);
+
+            if (snapshot.empty) {
+                console.log("No existing grid data. Initializing default items.");
+                for (let i = 0; i < TOTAL_ITEMS; i++) {
+                    const itemId = `item_${i}`;
+                    const colIndex = getColumnIndex(i);
+                    const defaultColor = getColorForColumn(colIndex);
+
+                    itemData[itemId] = {
+                        img: null, 
+                        vid: PLACEHOLDER_VID,
+                        bgColor: defaultColor
+                    };
+                    // 只写入前 5 个作为示例
+                    if (i < 5) { 
+                        // 使用 setDoc 创建/更新文档
+                        await setDoc(doc(db, getGridCollectionPath(appId), itemId), itemData[itemId]);
+                    }
+                }
+            } else {
+                 // 如果存在数据，但数量不足 TOTAL_ITEMS，确保 itemData 完整
+                 snapshot.docs.forEach(doc => {
+                    const data = doc.data();
+                    const i = parseInt(doc.id.split('_')[1]); // 原始空间索引
+                    // 忽略超出新 TOTAL_ITEMS 范围的项目
+                    if (i >= TOTAL_ITEMS) return; 
+                    
+                    const colIndex = getColumnIndex(i);
+                    const defaultColor = getColorForColumn(colIndex);
+
+                    itemData[doc.id] = {
+                        img: data.img || null,
+                        vid: data.vid || PLACEHOLDER_VID,
+                        bgColor: data.bgColor || defaultColor
+                    };
+                });
+                // 填充缺失的部分
+                for (let i = 0; i < TOTAL_ITEMS; i++) {
+                    const itemId = `item_${i}`;
+                    if (!itemData[itemId]) {
+                         const colIndex = getColumnIndex(i);
+                         itemData[itemId] = { img: null, vid: PLACEHOLDER_VID, bgColor: getColorForColumn(colIndex) };
+                    }
+                }
+            }
+        }
+        
+        function createGrid() {
+            if (items.length > 0 || !gridContainer) return; 
+            
+            gridContainer.innerHTML = ''; 
+            // 网格结构保持不变（10x6）
+            gridContainer.style.gridTemplateColumns = `repeat(${NUM_COLS}, 1fr)`;
+            // 【新增】设置网格间距
+            gridContainer.style.gap = `${currentGridGap}px`;
+
+            for (let i = 0; i < TOTAL_ITEMS; i++) {
+                // i 是原始的空间索引 (0-59, 从左上角开始)
+                const itemId = `item_${i}`;
+                const data = itemData[itemId] || { // 确保有默认数据
+                    img: null,
+                    vid: PLACEHOLDER_VID,
+                    bgColor: getColorForColumn(getColumnIndex(i))
+                };
+
+                const item = document.createElement('div');
+                item.className = 'grid-item aspect-square bg-cover bg-center cursor-pointer';
+                
+                // 应用数据 (颜色/图片)
+                if (data.img && data.img.trim()) {
+                    item.style.backgroundImage = `url(${data.img})`;
+                    item.style.backgroundColor = 'transparent';
+                } else {
+                    item.style.backgroundImage = 'none';
+                    item.style.backgroundColor = data.bgColor;
+                }
+
+                // ** 应用动态初始大小 **
+                item.style.transform = `scale(${currentMinScale})`; 
+                item.style.opacity = '0.7'; 
+
+                // 使用原始空间索引作为 data-id
+                item.dataset.videoId = itemId;
+                
+                gridContainer.appendChild(item);
+                
+                item.twinklePhase = Math.random() * 2 * Math.PI;
+                item.twinkleSpeed = 0.5 + Math.random() * 0.5;
+
+                items.push({ 
+                    el: item, 
+                    center: { x: 0, y: 0 },
+                    twinklePhase: item.twinklePhase,
+                    twinkleSpeed: item.twinkleSpeed
+                });
+            }
+            
+            cacheItemPositions();
+        }
+
+        function updateGridDOM() {
+            if (items.length === 0 || !gridContainer) return; 
+
+            // 【新增】更新网格间距
+            gridContainer.style.gap = `${currentGridGap}px`;
+
+            for(let i = 0; i < items.length; i++) {
+                const itemId = `item_${i}`; // 原始空间索引 ID
+                const data = itemData[itemId] || { // 确保有默认数据
+                    img: null,
+                    vid: PLACEHOLDER_VID,
+                    bgColor: getColorForColumn(getColumnIndex(i))
+                };
+                const itemEl = items[i].el;
+                
+                if (data.img && data.img.trim()) {
+                    itemEl.style.backgroundImage = `url(${data.img})`;
+                    itemEl.style.backgroundColor = 'transparent';
+                } else {
+                    itemEl.style.backgroundImage = 'none';
+                    itemEl.style.backgroundColor = data.bgColor;
+                }
+                
+                // ** 在更新时应用新的初始大小（如果网格已经创建） **
+                if (!itemEl.style.transform.includes('scale(') || itemEl.style.transform.includes('scale(0.')) {
+                     // 仅在元素未被鱼眼放大时应用初始大小
+                    itemEl.style.transform = `scale(${currentMinScale})`;
+                }
+            }
+        }
+        
+        /**
+         * 【新增函数】内联保存项目更改
+         * itemId 是原始空间 ID (item_i)
+         */
+        window.saveInlineItemChange = async (itemId, imgInputId, vidInputId, saveButton) => {
+            const imgInput = document.getElementById(imgInputId);
+            const vidInput = document.getElementById(vidInputId);
+
+            if (!imgInput || !vidInput) return console.error("Missing input elements for saving.");
+
+            const newImg = imgInput.value.trim();
+            const newVid = vidInput.value.trim();
+
+            if (isLocalMode || !db || !appId) return console.error("Invalid state for saving. Cannot save in local mode.");
+            if (!isAdminMode) return console.error("Permission denied. Admin mode required.");
+
+            // 禁用按钮并显示加载中状态
+            saveButton.disabled = true;
+            saveButton.textContent = '保存中...';
+            saveButton.classList.remove('bg-red-600', 'hover:bg-red-700', 'bg-green-600', 'hover:bg-green-700');
+            saveButton.classList.add('bg-gray-500');
+
+            const itemIndex = parseInt(itemId.split('_')[1]); // 原始空间索引 i
+            const colIndex = getColumnIndex(itemIndex);
+            const defaultColor = getColorForColumn(colIndex);
+
+            const dataToSave = { 
+                vid: newVid,
+                bgColor: itemData[itemId]?.bgColor || defaultColor, 
+                img: newImg || null,
+            };
+
+            const docRef = doc(db, getGridCollectionPath(appId), itemId);
+
+            try {
+                await updateDoc(docRef, dataToSave); 
+                console.log(`Item ${itemId} updated successfully.`);
+                
+                // 更新本地 itemData
+                itemData[itemId] = { ...itemData[itemId], ...dataToSave };
+                
+                // 恢复按钮状态
+                saveButton.textContent = '保存';
+                saveButton.classList.remove('bg-gray-500');
+                saveButton.classList.add('bg-green-600', 'hover:bg-green-700');
+                
+                // 重新渲染表格以更新预览图
+                renderAdminTable(); 
+
+            } catch (e) {
+                console.error("Error saving grid item: ", e);
+                saveButton.textContent = '保存失败';
+                saveButton.classList.remove('bg-gray-500', 'bg-green-600', 'hover:bg-green-700');
+                saveButton.classList.add('bg-red-600', 'hover:bg-red-700');
+            } finally {
+                 saveButton.disabled = false;
+            }
+        };
+
+        /**
+         * 【新增函数】聚焦到选定的网格项目
+         * itemId 是原始空间 ID (item_i)
+         */
+        window.selectItem = (itemId, rowElement) => {
+            if (!isAdminMode) return; 
+
+            // 1. 高亮表格行
+            document.querySelectorAll('.admin-table-row').forEach(row => {
+                row.classList.remove('selected-row');
+            });
+            rowElement.classList.add('selected-row');
+            
+            selectedItemId = itemId; 
+            isFocusMode = true; 
+            isMouseActive = true; 
+            startAnimationLoop(); 
+
+            // 2. 居中计算
+            const item = items.find(i => i.el.dataset.videoId === itemId);
+            if (!item) return;
+
+            const viewportCenterX = window.innerWidth / 2;
+            const viewportCenterY = window.innerHeight / 2;
+            
+            // 计算需要将项目中心移动到视口中心所需的偏移量
+            // T_x = V_x - C_x
+            const targetX = viewportCenterX - item.center.x;
+            const targetY = viewportCenterY - item.center.y;
+            
+            // 立即设置偏移目标，动画循环会平滑过渡
+            parallaxOffset.x = targetX;
+            parallaxOffset.y = targetY;
+            applyGridTransform(); // 立即应用一次以减少延迟
+        };
+
+
+        /**
+         * 渲染管理员素材编辑表格
+         */
+        function renderAdminTable() {
+            if (!adminTableContainer) return; 
+
+            let tableHtml = `
+                <div class="overflow-x-auto h-[80vh] bg-gray-900/90 backdrop-blur-sm rounded-xl shadow-2xl p-4">
+                    <table class="min-w-full divide-y divide-gray-700">
+                        <thead class="sticky top-0 bg-gray-900/95">
+                            <tr>
+                                <!-- 标题改为 ID (中心距离) -->
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-16">ID (中心距离)</th>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-20">预览</th>
+                                <!-- 新增位置缩略图列 -->
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-24">位置</th>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">图片 URL (Image)</th>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">视频 URL (Video)</th>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider w-24">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-800">
+            `;
+
+            // 【关键更改】：根据中心距离排序的映射来渲染表格行
+            for (let newId = 0; newId < TOTAL_ITEMS; newId++) {
+                // originalIndex 是网格的物理位置索引 (0-59)
+                const originalIndex = CENTER_DISTANCE_MAP.newIdToOriginalIndex[newId];
+                const itemId = `item_${originalIndex}`; // Firestore/DOM ID
+
+                const data = itemData[itemId] || { 
+                    img: '', 
+                    vid: PLACEHOLDER_VID, 
+                    bgColor: getColorForColumn(getColumnIndex(originalIndex)) 
+                };
+                
+                const imgUrl = data.img || '';
+                const videoUrl = data.vid || '';
+                const displayImg = imgUrl.trim() || `https://placehold.co/60x60/  ${data.bgColor.substring(1)}/FFFFFF?text=${originalIndex}`;
+                
+                const isSelected = selectedItemId === itemId ? 'selected-row' : '';
+
+                tableHtml += `
+                    <tr id="row-${itemId}" class="admin-table-row text-gray-300 cursor-pointer ${isSelected}" 
+                        data-item-id="${itemId}" onclick="selectItem('${itemId}', this)">
+                        <!-- 显示新的中心距离 ID (newId) -->
+                        <td class="px-3 py-2 whitespace-nowrap text-sm font-medium">${newId}</td> 
+                        <td class="px-3 py-2 whitespace-nowrap">
+                            <img src="${displayImg}" class="table-thumbnail" onerror="this.onerror=null; this.src='https://placehold.co/60x60/374151/FFFFFF?text=  ${originalIndex}'" alt="Item ${originalIndex} Preview">
+                        </td>
+                        <!-- 位置缩略图依然使用原始空间索引 originalIndex -->
+                        <td class="px-3 py-2">
+                            ${renderLocationThumbnail(originalIndex, data.bgColor)} 
+                        </td>
+                        <td class="px-3 py-2 text-sm max-w-sm">
+                            <input id="img-input-${itemId}" type="text" value="${imgUrl}" placeholder="Image URL" 
+                                class="w-full text-xs rounded-md bg-gray-700 border-gray-600 text-white p-1 focus:ring-red-500 focus:border-red-500">
+                        </td>
+                        <td class="px-3 py-2 text-sm max-w-sm">
+                            <input id="vid-input-${itemId}" type="text" value="${videoUrl}" placeholder="Video URL" 
+                                class="w-full text-xs rounded-md bg-gray-700 border-gray-600 text-white p-1 focus:ring-red-500 focus:border-red-500">
+                        </td>
+                        <td class="px-3 py-2 whitespace-nowrap text-sm">
+                            <button class="px-3 py-1 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition duration-150" 
+                                onclick="event.stopPropagation(); saveInlineItemChange('${itemId}', 'img-input-${itemId}', 'vid-input-${itemId}', this);">
+                                保存
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }
+
+            tableHtml += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            adminTableContainer.innerHTML = tableHtml;
+        }
+
+
+        /**
+         * 1. 获取所有 DOM 元素的引用
+         * 2. 绑定所有事件监听器
+         */
+        function setupDOMAndListeners() {
+            // --- 1. DOM 元素获取 ---
+            gridContainer = document.getElementById('grid-container');
+            modal = document.getElementById('video-modal');
+            videoPlayer = document.getElementById('video-player');
+            closeModal = document.getElementById('close-modal');
+            mainTitleEl = document.getElementById('main-title');
+            subTextEl = document.getElementById('sub-text');
+            editContainer = document.getElementById('edit-mode-container');
+            contentDisplay = document.getElementById('content-display');
+            editTitleEl = document.getElementById('edit-title');
+            editSubtitleEl = document.getElementById('edit-subtitle');
+            topContentArea = document.getElementById('top-content-area');
+            adminTableContainer = document.getElementById('admin-table-view'); // 新增表格容器
+
+            // Admin Text Edit Elements
+            editWebTitleEl = document.getElementById('edit-web-title'); 
+            editTitleSizeEl = document.getElementById('edit-title-size');
+            editTitleWeightEl = document.getElementById('edit-title-weight');
+            editTitleColorPickerEl = document.getElementById('edit-title-color-picker');
+            editTitleSpacingEl = document.getElementById('edit-title-spacing');
+            editSubtitleSizeEl = document.getElementById('edit-subtitle-size');
+            editSubtitleWeightEl = document.getElementById('edit-subtitle-weight');
+            editSubtitleColorPickerEl = document.getElementById('edit-subtitle-color-picker');
+            editSubtitleSpacingEl = document.getElementById('edit-subtitle-spacing');
+
+            // ** 视觉参数元素 **
+            editFisheyeRadiusEl = document.getElementById('edit-fisheye-radius');
+            editDecayPowerEl = document.getElementById('edit-decay-power');
+            editMinScaleEl = document.getElementById('edit-min-scale');
+            editMaxScaleEl = document.getElementById('edit-max-scale'); 
+            editParallaxSmoothingEl = document.getElementById('edit-parallax-smoothing'); // 平滑度元素
+            editGridGapEl = document.getElementById('edit-grid-gap'); // 【新增】网格间距元素
+
+
+            // Admin UI elements
+            adminToggleBtn = document.getElementById('admin-toggle-btn');
+            viewToggleBtn = document.getElementById('view-toggle-btn'); // 视图切换按钮
+
+            // Auth UI elements
+            authModal = document.getElementById('auth-modal');
+            authUsernameEl = document.getElementById('auth-username');
+            authPasswordEl = document.getElementById('auth-password');
+            authErrorMessageEl = document.getElementById('auth-error-message');
+            
+            // --- 2. 绑定事件监听器 ---
+
+            window.addEventListener('mousemove', (e) => {
+                // 只有在网格视图且非聚焦模式时才更新鼠标位置
+                if (window.currentView === 'grid' || isFocusMode === false) { 
+                    mousePos.x = e.clientX;
+                    mousePos.y = e.clientY;
+
+                    if (!isMouseActive) {
+                        isMouseActive = true;
+                        startAnimationLoop();
+                    }
+                }
+            });
+
+            window.addEventListener('mouseenter', () => {
+                 if (window.currentView === 'grid' && !isMouseActive && isFocusMode === false) { 
+                    isMouseActive = true;
+                    startAnimationLoop();
+                }
+            });
+
+            window.addEventListener('mouseleave', () => {
+                if (isFocusMode === false) {
+                    isMouseActive = false;
+                    resetGrid(); 
+                }
+            });
+
+            gridContainer.addEventListener('click', (e) => {
+                const itemElement = e.target.closest('.grid-item');
+                if (itemElement) {
+                    const itemId = itemElement.dataset.videoId; // 原始空间 ID (item_i)
+                    
+                    if (isAdminMode) {
+                        // 在网格视图下点击项目，直接切换到表格并选中该项目
+                        window.switchView('table');
+                        const rowElement = document.getElementById(`row-${itemId}`);
+                        if (rowElement) {
+                             window.selectItem(itemId, rowElement);
+                             rowElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                        return; 
+                    }
+
+                    isMouseActive = false; 
+                    const videoSrc = itemData[itemId]?.vid || PLACEHOLDER_VID;
+                    openVideoModal(videoSrc);
+                }
+            });
+
+            closeModal.addEventListener('click', closeVideoModalFunc);
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    closeVideoModalFunc();
+                }
+            });
+
+            let resizeTimer;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => {
+                    cacheItemPositions();
+                    // 如果在聚焦模式，重新计算居中
+                    if(isFocusMode && selectedItemId) {
+                         const rowElement = document.getElementById(`row-${selectedItemId}`);
+                         if(rowElement) window.selectItem(selectedItemId, rowElement); // 重新触发居中计算
+                    }
+                }, 100);
+            });
+
+            window.addEventListener('contextmenu', (e) => {
+                if (e.button === 1) {
+                    e.preventDefault();
+                }
+            });
+            
+            // 初始化 Admin Mode 样式 (默认关闭)
+            window.setAdminMode(false); 
+        }
+
+
+        /**
+         * 启动应用（初始化 Firebase & 监听器）
+         */
+        window.setupApp = async () => {
+            
+            setupDOMAndListeners();
+            
+            // 【新增】在初始化时计算一次中心距离映射
+            CENTER_DISTANCE_MAP = calculateCenterDistanceMapping();
+
+            const hasFirebaseConfig = Object.keys(firebaseConfig).length > 0 && firebaseConfig.apiKey.includes('AIzaSyD'); 
+
+            if (!hasFirebaseConfig) {
+                window.runLocalFallback();
+                return;
+            }
+
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                setLogLevel('error'); 
+
+                let authSuccess = false;
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken).then(() => { authSuccess = true; }).catch(e => { console.error("Custom token sign-in failed (ignored for GH Pages):", e); });
+                }
+                
+                if (!authSuccess) {
+                    try {
+                        await signInAnonymously(auth);
+                        authSuccess = true;
+                    } catch (e) {
+                        console.error("Anonymous sign-in failed:", e);
+                        window.runLocalFallback();
+                        return;
+                    }
+                }
+                
+                const unsubscribe = onAuthStateChanged(auth, (user) => { 
+                    if (user) {
+                        console.log("User state confirmed. Setting up Firestore listeners.");
+                        // 使用新的设置文档路径
+                        window.setupContentListener(db, appId);
+                        window.setupGridListener(db, appId);
+                        unsubscribe();
+                    } else {
+                        console.warn("User is not logged in. Waiting for sign-in state.");
+                    }
+                }, (error) => {
+                     console.error("onAuthStateChanged error:", error);
+                     window.runLocalFallback();
+                });
+                
+            } catch (error) {
+                console.error("Firebase Initialization/Sign-In Error, falling back:", error);
+                window.runLocalFallback();
+            }
+        };
+
+        window.addEventListener('load', window.setupApp);
+
+        // --- 核心动画/交互函数 (使用动态参数 & 加速) ---
+
+        function cacheItemPositions() {
+            if (!gridContainer) return; 
+            
+            const oldTransform = gridContainer.style.transform;
+            gridContainer.style.transform = ''; 
+
+            for (const item of items) {
+                const rect = item.el.getBoundingClientRect();
+                item.center = {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2
+                };
+            }
+
+            gridContainer.style.transform = oldTransform;
+        }
+
+        function applyGridTransform() {
+            if (!gridContainer) return; 
+
+            const finalX = parallaxOffset.x;
+            const finalY = parallaxOffset.y;
+            // 使用 translate3d 提升 GPU 渲染性能
+            gridContainer.style.transform = `translate3d(${finalX}px, ${finalY}px, 0)`; 
+        }
+
+        /**
+         * 【新增函数】将所有网格元素复位到初始大小。
+         */
+        function resetGridScale() {
+            if (items.length === 0) return; 
+            
+            // 使用动态初始大小进行复位
+            for (const item of items) {
+                item.el.style.transform = `scale(${currentMinScale})`;
+                item.el.style.opacity = '0.7';
+                item.el.style.zIndex = 1;
+                item.el.style.filter = 'brightness(1.0)'; 
+            }
+        }
+
+        function updateFisheyeEffect() {
+            if (!gridContainer) { 
+                 animationFrameId = null;
+                 return;
+            }
+            
+            // --- 1. 视差偏移计算与应用 (使用动态平滑度) ---
+            const viewportCenterX = window.innerWidth / 2;
+            const viewportCenterY = window.innerHeight / 2;
+            
+            if (!isFocusMode) {
+                 // 正常模式下，计算基于鼠标的视差目标
+                const targetParallaxX = (mousePos.x - viewportCenterX) * PARALLAX_INTENSITY;
+                const targetParallaxY = (mousePos.y - viewportCenterY) * PARALLAX_INTENSITY;
+                
+                // 使用动态平滑系数 currentParallaxSmoothing 进行平滑过渡
+                parallaxOffset.x += (targetParallaxX - parallaxOffset.x) * currentParallaxSmoothing;
+                parallaxOffset.y += (targetParallaxY - parallaxOffset.y) * currentParallaxSmoothing;
+            } else {
+                // 聚焦模式下，计算基于目标的平滑过渡
+                const item = items.find(i => i.el.dataset.videoId === selectedItemId);
+                if (item) {
+                    const targetX = viewportCenterX - item.center.x;
+                    const targetY = viewportCenterY - item.center.y;
+
+                    // 使用更慢的平滑度实现平滑的居中动画
+                    const FOCUS_SMOOTHING = 0.05; 
+                    parallaxOffset.x += (targetX - parallaxOffset.x) * FOCUS_SMOOTHING;
+                    parallaxOffset.y += (targetY - parallaxOffset.y) * FOCUS_SMOOTHING;
+                }
+            }
+            
+            applyGridTransform(); 
+
+            if (isAdminMode && window.currentView === 'table') { 
+                // 表格视图下，只执行视差/聚焦平移，不执行鱼眼和闪烁效果
+                animationFrameId = requestAnimationFrame(updateFisheyeEffect); // 保持动画循环运行
+                return;
+            } else if (isAdminMode) {
+                // 管理员网格模式下，只执行视差，不执行鱼眼和闪烁效果
+                animationFrameId = requestAnimationFrame(updateFisheyeEffect);
+                return;
+            }
+
+            // --- 2. 鱼眼/聚焦效果计算 ---
+            const fisheyeCenterX = mousePos.x;
+            const fisheyeCenterY = mousePos.y;
+            // 动态读取配置参数
+            const fisheyeRadius = currentFisheyeRadius;
+            const minScale = currentMinScale;
+            const decayPower = currentDecayPower;
+            const maxScale = currentMaxScale; 
+
+            // 聚焦模式下，使用更大的缩放目标
+            const focusScale = maxScale * 1.5; 
+
+            for (const item of items) {
+                const adjustedItemCenterX = item.center.x + parallaxOffset.x; 
+                const adjustedItemCenterY = item.center.y + parallaxOffset.y; 
+
+                let scale;
+                let opacity;
+                let zIndex = 1;
+                let brightness = 1.0; 
+                
+                // 【聚焦模式覆盖】
+                if (isFocusMode && item.el.dataset.videoId === selectedItemId) {
+                    scale = focusScale; // 放大到最大缩放
+                    opacity = 1.0;
+                    zIndex = 100; // 确保在最前面
+                    brightness = 1.0; 
+                } else if (isFocusMode) {
+                    // 非选中项
+                    scale = minScale * 0.5; // 缩小非选中项
+                    opacity = 0.2;
+                    zIndex = 1;
+                    brightness = 0.5;
+                } else {
+                    // 【正常鱼眼模式】
+                    const dx = fisheyeCenterX - adjustedItemCenterX;
+                    const dy = fisheyeCenterY - adjustedItemCenterY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist >= fisheyeRadius) { 
+                        
+                        opacity = 0.7;
+                        
+                        // --- 3. 闪烁效果 (Twinkling: 亮度 + 大小) ---
+                        item.twinklePhase += (0.02 + Math.random() * 0.01) * item.twinkleSpeed;
+                        const sineVal = (Math.sin(item.twinklePhase) + 1) / 2;
+                        
+                        const minBrightness = 0.2; 
+                        const maxBrightness = 1.4; 
+                        const brightnessRange = maxBrightness - minBrightness; 
+                        brightness = minBrightness + (brightnessRange * sineVal);
+                        
+                        const minTwinkleScale = minScale * 0.70; 
+                        const maxTwinkleScale = minScale * 1.30; 
+                        const scaleRange = maxTwinkleScale - minTwinkleScale;
+                        
+                        const sineTwinkleScale = (Math.sin(item.twinklePhase) + 1) / 2; 
+                        scale = minTwinkleScale + (scaleRange * sineTwinkleScale); 
+                        
+                    } else {
+                        // 鱼眼效果区域
+                        const proximity = 1 - (dist / fisheyeRadius);
+                        
+                        const easedProximity = 1 - Math.pow(1 - proximity, decayPower); 
+                        
+                        scale = minScale + (maxScale - minScale) * easedProximity;
+                        opacity = 0.7 + (1.0 - 0.7) * easedProximity;
+                        
+                        zIndex = 2 + Math.floor(proximity * 8); 
+                        brightness = 1.0; 
+                    }
+                }
+
+                item.el.style.transform = `translateZ(0) scale(${scale})`;
+                item.el.style.opacity = opacity;
+                item.el.style.zIndex = zIndex;
+                item.el.style.filter = `brightness(${brightness})`;
+            }
+            
+            if (isMouseActive) { 
+                animationFrameId = requestAnimationFrame(updateFisheyeEffect);
+            } else {
+                animationFrameId = null; 
+            }
+        }
+
+        function startAnimationLoop() {
+            if (!gridContainer) return; 
+            if (!animationFrameId) {
+                animationFrameId = requestAnimationFrame(updateFisheyeEffect);
+            }
+        }
+
+        function resetGrid() {
+            if (items.length === 0 || !gridContainer) return; 
+
+            // 调用新的复位函数
+            resetGridScale(); 
+
+            parallaxOffset = { x: 0, y: 0 };
+            applyGridTransform(); 
+        }
+
+        function openVideoModal(videoSrc) {
+            if (!modal || !videoPlayer) return; 
+
+            videoPlayer.src = videoSrc;
+            modal.classList.remove('hidden');
+            videoPlayer.play().catch(e => {
+                if (e.name !== 'AbortError') {
+                    console.error("视频播放失败:", e);
+                }
+            });
+        }
+
+        function closeVideoModalFunc() {
+            if (!modal || !videoPlayer) return; 
+
+            modal.classList.add('hidden');
+            videoPlayer.pause();
+            videoPlayer.src = ''; 
+            // 从视频播放返回，重置聚焦模式
+            resetFocusAndScale(); 
+            isMouseActive = true; 
+            startAnimationLoop();
+        }
+
+    </script>
+
+        <!-- 顶部内容区域/编辑模式 -->
+        <div id="top-content-area" class="fixed top-0 left-0 right-0 p-8 md:p-12 z-20 text-white pointer-events-none transition-all duration-300">
+            
+            <!-- 【修复】新增独立控制条，确保切换按钮始终可见 -->
+            <div id="admin-persistent-controls" class="absolute top-8 right-8 md:top-12 md:right-12 z-30 flex space-x-4 pointer-events-auto">
+                <!-- 视图切换按钮 -->
+                <button id="view-toggle-btn" class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-150 hidden" onclick="switchView(window.currentView === &#39;grid&#39; ? &#39;table&#39; : &#39;grid&#39;)">
+                    切换到列表编辑
+                </button>
+            </div>
+            
+            <div id="content-display" class="flex flex-col">
+                <h1 id="main-title" class="text-white text-4xl font-extrabold cursor-text transition-colors duration-500 hover:text-yellow-400 pointer-events-auto" onclick="toggleEditMode(true)">3D&amp;Motion Creative&amp;Production</h1>
+                <p id="sub-text" class="text-gray-400 text-base font-normal cursor-text transition-colors duration-500 hover:text-gray-200 pointer-events-auto" onclick="toggleEditMode(true)">Powerd by REDesign</p>
+            </div>
+
+            <!-- 编辑模式 UI (Admin Only) -->
+            <div id="edit-mode-container" class="hidden bg-gray-900/90 backdrop-blur-sm p-6 rounded-xl shadow-2xl pointer-events-auto max-w-4xl">
+                <h2 class="text-xl font-bold mb-4 text-red-400">顶部内容及视觉参数编辑 (Admin)</h2>
+                
+                <div class="space-y-4">
+                    <!-- Web Title -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400">网站标题 (Title)</label>
+                        <input id="edit-web-title" type="text" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="灵感矩阵 | 设计作品集"/>
+                    </div>
+                    
+                    <!-- 主标题和副标题编辑 - 左右排列 -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Main Title Edit -->
+                        <div class="p-4 bg-gray-800 rounded-lg">
+                            <label class="block text-lg font-medium text-white mb-2">主标题</label>
+                            <input id="edit-title" type="text" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="3D&amp;Motion Creative&amp;Production"/>
+                            <div class="grid grid-cols-2 gap-3 mt-3 text-sm">
+                                <select id="edit-title-size" class="rounded-md bg-gray-700 border-gray-600 text-white p-2">
+                                    <option value="text-8xl">特大号</option>
+                                    <option value="text-6xl">大号</option>
+                                    <option value="text-4xl">中号</option>
+                                </select>
+                                <select id="edit-title-weight" class="rounded-md bg-gray-700 border-gray-600 text-white p-2">
+                                    <option value="font-extrabold">极粗</option>
+                                    <option value="font-bold">粗体</option>
+                                    <option value="font-semibold">半粗</option>
+                                </select>
+                                <input id="edit-title-color-picker" type="color" class="h-10 w-full rounded-md bg-gray-700 border-gray-600 p-1 cursor-pointer" value="#FFFFFF"/>
+                                <select id="edit-title-spacing" class="rounded-md bg-gray-700 border-gray-600 text-white p-2">
+                                    <option value="tracking-normal">默认间距</option>
+                                    <option value="tracking-wider">更宽</option>
+                                    <option value="tracking-tight">更紧</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Subtitle Edit -->
+                        <div class="p-4 bg-gray-800 rounded-lg">
+                            <label class="block text-lg font-medium text-white mb-2">副标题</label>
+                            <input id="edit-subtitle" type="text" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="Powerd by REDesign"/>
+                            <div class="grid grid-cols-2 gap-3 mt-3 text-sm">
+                                <select id="edit-subtitle-size" class="rounded-md bg-gray-700 border-gray-600 text-white p-2">
+                                    <option value="text-2xl">大号</option>
+                                    <option value="text-xl">中号</option>
+                                    <option value="text-base">小号</option>
+                                </select>
+                                <select id="edit-subtitle-weight" class="rounded-md bg-gray-700 border-gray-600 text-white p-2">
+                                    <option value="font-normal">默认</option>
+                                    <option value="font-bold">粗体</option>
+                                    <option value="font-extrabold">极粗</option>
+                                </select>
+                                <input id="edit-subtitle-color-picker" type="color" class="h-10 w-full rounded-md bg-gray-700 border-gray-600 p-1 cursor-pointer" value="#9CA3AF"/>
+                                <select id="edit-subtitle-spacing" class="rounded-md bg-gray-700 border-gray-600 text-white p-2">
+                                    <option value="tracking-normal">默认间距</option>
+                                    <option value="tracking-widest">最宽</option>
+                                    <option value="tracking-tight">更紧</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 网格视觉参数编辑 - 调整为响应式 6 列布局 -->
+                    <div class="p-4 bg-gray-800 rounded-lg">
+                        <label class="block text-lg font-medium text-white mb-4">网格视觉参数</label>
+                        <!-- 调整为 md:grid-cols-3 lg:grid-cols-6 以容纳 6 个元素 -->
+                        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400">鱼眼半径 (px)</label>
+                                <input id="edit-fisheye-radius" type="number" step="10" min="100" max="1000" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="300"/>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400">衰减幅度 (1.0 - 5.0)</label>
+                                <input id="edit-decay-power" type="number" step="0.1" min="1.0" max="5.0" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="2.0"/>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400">初始大小 (0.01 - 1.0)</label>
+                                <input id="edit-min-scale" type="number" step="0.01" min="0.01" max="1.0" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="0.175"/>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400">最大放大倍数</label>
+                                <input id="edit-max-scale" type="number" step="0.1" min="1.0" max="5.0" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="3.0"/>
+                            </div>
+                            <!-- 动画平滑度调节 -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400">动画平滑度 (0.01 - 1.0)</label>
+                                <input id="edit-parallax-smoothing" type="number" step="0.01" min="0.01" max="1.0" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="0.2"/>
+                            </div>
+                            <!-- 网格间距调节 -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400">图片间距 (px)</label>
+                                <input id="edit-grid-gap" type="number" step="1" min="0" max="20" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="1"/>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex space-x-4 mt-6">
+                    <button class="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition duration-150" onclick="saveContent()">保存更改</button>
+                    <button class="px-4 py-2 bg-gray-500 text-white font-semibold rounded-lg hover:bg-gray-600 transition duration-150" onclick="toggleEditMode(false)">取消</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 管理员表格视图容器 (新增) -->
+        <div id="admin-table-view" class="fixed inset-0 p-4 md:p-12 z-10 hidden overflow-auto pointer-events-auto">
+            <h1 class="text-3xl font-bold mb-4 text-red-400">网格素材列表编辑 (共 ${TOTAL_ITEMS} 个项目)</h1>
+            <!-- 表格内容将由 JavaScript 填充 -->
+        </div>
+
+
+        <!-- 版权信息和管理员模式触发器 -->
+        <div id="admin-toggle-btn" class="fixed bottom-4 right-4 z-50 text-gray-400 text-sm font-medium pointer-events-auto cursor-default">
+            2025 <span class="cursor-pointer hover:text-white transition-colors duration-200" onclick="handleAdminToggle()">©</span> All Rights Reserved By REDesign
+        </div>
+
+
+        <!-- 网格容器 (位于中心) -->
+        <div id="grid-container" class="absolute inset-0 m-auto grid" style="transform: translate(0, 0); transform-style: preserve-3d;">
+            <!-- Grid items will be generated here by JavaScript -->
+        </div>
+
+        <!-- 视频模态框 (用于播放选中的项目) -->
+        <div id="video-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex justify-center items-center hidden transition-opacity duration-300">
+            <div class="relative w-full max-w-4xl h-auto aspect-video rounded-xl shadow-2xl overflow-hidden">
+                <video id="video-player" class="w-full h-full object-cover" controls="" autoplay="" playsinline=""></video>
+                <button id="close-modal" class="absolute top-4 right-4 text-white p-2 rounded-full bg-black/50 hover:bg-black/80 transition" aria-label="Close video">
+                    <svg xmlns="http://www.w3.org/2000/svg  " class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Admin Auth Modal -->
+        <div id="auth-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex justify-center items-center hidden transition-opacity duration-300">
+            <div class="bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-md border border-gray-700">
+                <h2 class="text-2xl font-bold text-white mb-6 text-center">管理员登录</h2>
+                
+                <div class="space-y-5 text-white">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">用户名</label>
+                        <input id="auth-username" type="text" value="admin" class="block w-full rounded-md bg-gray-700 border border-gray-600 text-white p-3 focus:ring-2 focus:ring-red-500 focus:border-red-500"/>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">密码</label>
+                        <input id="auth-password" type="password" value="" class="block w-full rounded-md bg-gray-700 border border-gray-600 text-white p-3 focus:ring-2 focus:ring-red-500 focus:border-red-500" placeholder="请输入密码"/>
+                    </div>
+                    <p id="auth-error-message" class="text-red-400 text-sm hidden text-center">用户名或密码错误。</p>
+                </div>
+
+                <div class="flex space-x-4 mt-8">
+                    <button class="flex-1 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition duration-150 focus:outline-none focus:ring-2 focus:ring-red-500" onclick="handleAdminLogin()">登录</button>
+                    <button class="flex-1 py-3 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700 transition duration-150 focus:outline-none focus:ring-2 focus:ring-gray-500" onclick="closeAuthModal()">取消</button>
+                </div>
+            </div>
+        </div>
+        <!-- item-edit-modal 已被移除 -->
+    </div>
+
+</body></html>
