@@ -91,7 +91,7 @@
 
         let CENTER_DISTANCE_MAP = { newIdToOriginalIndex: [], originalIndexToNewId: [] };
 
-        const DEFAULT_FISHEYE_SETTINGS = { 
+        const DEFAULT_FISHEHEYE_SETTINGS = { 
             radius: 300, decayPower: 2.0, minScale: 0.175, maxScale: 3.0, 
             parallaxSmoothing: 0.2, canvasScale: 1.0, canvasOffsetX: 0 
         };
@@ -112,6 +112,7 @@
         let itemData = {};
         let mousePos = { x: 0, y: 0 };
         let isMouseActive = false;
+        let isMouseInsideWindow = true; // 默认鼠标在窗口内
         let animationFrameId = null;
         let parallaxOffset = { x: 0, y: 0 };
 
@@ -321,16 +322,31 @@
 
         function renderAdminTable() {
             // 表格渲染保持不变（略）
+            // 由于用户未提供完整的渲染逻辑，此函数为空
+            adminTableContainer.innerHTML = `
+                <div class="p-4 text-white">
+                    <h2 class="text-xl font-bold mb-4 text-red-400">项目列表编辑 (Admin)</h2>
+                    <p>渲染列表的逻辑未提供，但可以通过 Firebase 监听器查看数据更新。</p>
+                </div>
+            `;
         }
-
+        
+        // ==================== 更新后的核心动画函数 ====================
         function updateFisheyeEffect() {
             const cx = innerWidth/2, cy = innerHeight/2;
-            if (!isFocusMode) {
+
+            // 仅当鼠标在窗口内且未处于焦点模式时，才计算视差
+            if (isMouseInsideWindow && !isFocusMode) {
                 const tx = (mousePos.x - cx) * PARALLAX_INTENSITY;
                 const ty = (mousePos.y - cy) * PARALLAX_INTENSITY;
                 parallaxOffset.x += (tx - parallaxOffset.x) * currentParallaxSmoothing;
                 parallaxOffset.y += (ty - parallaxOffset.y) * currentParallaxSmoothing;
+            } else if (!isFocusMode) {
+                // 如果鼠标在外部，则平滑地将视差偏移归零
+                parallaxOffset.x += (0 - parallaxOffset.x) * currentParallaxSmoothing;
+                parallaxOffset.y += (0 - parallaxOffset.y) * currentParallaxSmoothing;
             }
+
             applyGridTransform();
 
             if (window.currentView==='table' || (isAdminMode && window.currentView==='grid')) { if (isMouseActive) animationFrameId = requestAnimationFrame(updateFisheyeEffect); return; }
@@ -346,13 +362,13 @@
                     scale = currentMaxScale * 1.5; opacity = 1.0; z = 100;
                 } else if (isFocusMode) {
                     scale = currentMinScale * 0.8; opacity = 0.4;
-                } else if (dist >= radius) {
+                } else if (!isMouseInsideWindow || dist >= radius) { // 鼠标在外部 或 距离大于半径 -> 闪烁
                     // 闪烁频率减慢为原来的 1/5
-                    it.el.twinklePhase += 0.004 * it.el.twinkleSpeed;  // 原为 0.02
+                    it.el.twinklePhase += 0.004 * it.el.twinkleSpeed; 
                     const tw = (Math.sin(it.el.twinklePhase) + 1) / 2;
                     scale = currentMinScale * (0.7 + tw * 0.6);
                     bright = 0.3 + tw * 1.1;
-                } else {
+                } else { // 鼠标在内部 且 距离小于半径 -> 鱼眼效果
                     const p = 1 - dist / radius;
                     const e = 1 - Math.pow(1 - p, currentDecayPower);
                     scale = currentMinScale + (currentMaxScale - currentMinScale) * e;
@@ -367,6 +383,7 @@
 
             if (isMouseActive) animationFrameId = requestAnimationFrame(updateFisheyeEffect);
         }
+        // ==================== 结束更新 ====================
 
         function startAnimationLoop() { if (!animationFrameId) animationFrameId = requestAnimationFrame(updateFisheyeEffect); }
 
@@ -453,7 +470,18 @@
 
             closeModal.onclick = closeVideoModalFunc;
             modal.onclick = e => e.target === modal && closeVideoModalFunc();
-            window.addEventListener('mousemove', e => { mousePos = {x:e.clientX, y:e.clientY}; if (!isMouseActive) { isMouseActive = true; startAnimationLoop(); } });
+            
+            // --- 更新鼠标事件监听器以处理鼠标移出窗口的逻辑 ---
+            window.addEventListener('mousemove', e => { 
+                mousePos = {x:e.clientX, y:e.clientY}; 
+                isMouseInsideWindow = true; // 鼠标移动，说明在窗口内
+                if (!isMouseActive) { isMouseActive = true; startAnimationLoop(); } 
+            });
+            window.addEventListener('mouseleave', () => {
+                isMouseInsideWindow = false; // 鼠标离开窗口，关闭交互
+            });
+            // --- 结束更新 ---
+            
             gridContainer.onclick = e => {
                 const el = e.target.closest('.grid-item');
                 if (!el) return;
@@ -522,12 +550,18 @@
         });
     </script>
 
-    <!-- 完整 HTML（新增左右移动 + 闪烁减慢） -->
     <div id="top-content-area" class="fixed top-0 left-0 right-0 p-8 md:p-12 z-20 text-white pointer-events-none transition-all duration-300">
         <div id="admin-persistent-controls" class="absolute top-8 right-8 md:top-12 md:right-12 z-30 flex space-x-4 pointer-events-auto">
             <button id="view-toggle-btn" class="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-150 hidden" 
                     onclick="switchView(window.currentView === 'grid' ? 'table' : 'grid')">
                 切换到列表编辑
+            </button>
+            <button id="admin-toggle-btn" class="px-4 py-2 bg-gray-800 text-sm font-medium rounded-lg hover:bg-gray-700 transition duration-150 flex items-center space-x-2" 
+                    onclick="handleAdminToggle()">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+                <span class="text-gray-400 hover:text-white transition duration-150">Admin</span>
             </button>
         </div>
 
@@ -594,66 +628,85 @@
                 </div>
 
                 <div class="p-4 bg-gray-800 rounded-lg">
-                    <label class="block text-lg font-medium text-white mb-4">网格视觉参数</label>
-                    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                        <div><label class="block text-sm font-medium text-gray-400">鱼眼半径</label><input id="edit-fisheye-radius" type="number" step="10" min="100" max="1000" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="300"/></div>
-                        <div><label class="block text-sm font-medium text-gray-400">衰减幅度</label><input id="edit-decay-power" type="number" step="0.1" min="1.0" max="5.0" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="2.0"/></div>
-                        <div><label class="block text-sm font-medium text-gray-400">初始大小</label><input id="edit-min-scale" type="number" step="0.01" min="0.01" max="1.0" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="0.175"/></div>
-                        <div><label class="block text-sm font-medium text-gray-400">最大放大</label><input id="edit-max-scale" type="number" step="0.1" min="1.0" max="5.0" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="3.0"/></div>
-                        <div><label class="block text-sm font-medium text-gray-400">动画平滑度</label><input id="edit-parallax-smoothing" type="number" step="0.01" min="0.01" max="1.0" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="0.2"/></div>
-                        <div><label class="block text-sm font-medium text-gray-400">整体缩放 (0.5~2.0)</label><input id="edit-canvas-scale" type="number" step="0.05" min="0.5" max="2.0" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="1.0"/></div>
-                        <div class="col-span-2 lg:col-span-6">
-                            <label class="block text-sm font-medium text-gray-400 mb-1">左右平移 (-2000 ~ +2000px)</label>
-                            <input id="edit-canvas-offset-x" type="range" min="-2000" max="2000" step="50" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider" value="0"/>
-                            <div class="text-center text-white text-sm mt-1"><span id="offset-value">0</span> px</div>
+                    <label class="block text-lg font-medium text-white mb-3">鱼眼与网格设置</label>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div class="space-y-1">
+                            <label class="block font-medium text-gray-400">鱼眼半径 (Radius)</label>
+                            <input id="edit-fisheye-radius" type="number" step="10" class="w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" />
+                        </div>
+                        <div class="space-y-1">
+                            <label class="block font-medium text-gray-400">缩放衰减 (Decay)</label>
+                            <input id="edit-decay-power" type="number" step="0.1" class="w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" />
+                        </div>
+                        <div class="space-y-1">
+                            <label class="block font-medium text-gray-400">最小缩放 (Min Scale)</label>
+                            <input id="edit-min-scale" type="number" step="0.025" class="w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" />
+                        </div>
+                        <div class="space-y-1">
+                            <label class="block font-medium text-gray-400">最大缩放 (Max Scale)</label>
+                            <input id="edit-max-scale" type="number" step="0.5" class="w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" />
+                        </div>
+                        <div class="space-y-1">
+                            <label class="block font-medium text-gray-400">视差平滑度</label>
+                            <input id="edit-parallax-smoothing" type="number" step="0.05" class="w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" />
+                        </div>
+                        <div class="space-y-1">
+                            <label class="block font-medium text-gray-400">画布缩放 (Canvas Scale)</label>
+                            <input id="edit-canvas-scale" type="number" step="0.1" class="w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" />
+                        </div>
+                        <div class="space-y-1">
+                            <label class="block font-medium text-gray-400">画布 X 偏移</label>
+                            <input id="edit-canvas-offset-x" type="number" step="10" class="w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" />
                         </div>
                     </div>
                 </div>
+
+                <div class="flex justify-end space-x-3">
+                    <button onclick="toggleEditMode(false)" class="px-4 py-2 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700 transition duration-150">取消</button>
+                    <button onclick="saveContent()" class="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition duration-150">保存设置</button>
+                </div>
             </div>
-            <div class="flex space-x-4 mt-6">
-                <button class="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700" onclick="saveContent()">保存更改</button>
-                <button class="px-4 py-2 bg-gray-500 text-white font-semibold rounded-lg hover:bg-gray-600" onclick="toggleEditMode(false)">取消</button>
+        </div>
+
+    </div>
+
+    <div id="admin-table-view" class="fixed inset-0 bg-gray-900/95 backdrop-blur-sm z-40 p-8 md:p-12 hidden overflow-y-auto">
+        </div>
+
+
+    <div id="auth-modal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center hidden" onclick="closeAuthModal()">
+        <div class="bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-sm" onclick="event.stopPropagation()">
+            <h2 class="text-2xl font-bold text-white mb-6">管理员登录</h2>
+            <div id="auth-error-message" class="bg-red-900/50 text-red-300 p-3 rounded-md mb-4 hidden">
+                用户名或密码错误。
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label for="auth-username" class="block text-sm font-medium text-gray-400">用户名</label>
+                    <input id="auth-username" type="text" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="admin" disabled/>
+                </div>
+                <div>
+                    <label for="auth-password" class="block text-sm font-medium text-gray-400">密码</label>
+                    <input id="auth-password" type="password" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2"/>
+                </div>
+                <div class="flex justify-end pt-2">
+                    <button onclick="handleAdminLogin()" class="px-6 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition duration-150">登录</button>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- 其余 HTML 保持不变 -->
-    <div id="admin-table-view" class="fixed inset-0 p-4 md:p-12 z-10 hidden overflow-auto pointer-events-auto">
-        <h1 class="text-3xl font-bold mb-4 text-red-400">网格素材列表编辑 (共 60 个项目)</h1>
-    </div>
-
-    <div id="admin-toggle-btn" class="fixed bottom-4 right-4 z-50 text-gray-400 text-sm font-medium pointer-events-auto cursor-default">
-        2025 <span class="cursor-pointer hover:text-white transition-colors duration-200" onclick="handleAdminToggle()">©</span> All Rights Reserved by REDesign
-    </div>
-
-    <div id="grid-container" class="absolute inset-0 m-auto grid" style="transform-origin:center center;transform:translate(0,0) scale(1);transform-style:preserve-3d;"></div>
-
-    <div id="video-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex justify-center items-center hidden">
-        <div class="relative w-full max-w-4xl aspect-video rounded-xl shadow-2xl overflow-hidden">
-            <video id="video-player" class="w-full h-full object-cover" controls autoplay playsinline></video>
-            <button id="close-modal" class="absolute top-4 right-4 text-white p-2 rounded-full bg-black/50 hover:bg-black/80">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                </svg>
-            </button>
+    <div id="video-modal" class="fixed inset-0 bg-black/90 z-40 flex items-center justify-center hidden">
+        <div id="close-modal" class="absolute top-4 right-4 md:top-8 md:right-8 text-white cursor-pointer z-50 p-2 hover:text-red-500 transition duration-200">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-8 h-8">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
         </div>
+        <video id="video-player" controls preload="auto" class="max-w-[90vw] max-h-[90vh] rounded-xl shadow-2xl"></video>
     </div>
 
-    <div id="auth-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex justify-center items-center hidden">
-        <div class="bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-md border border-gray-700">
-            <h2 class="text-2xl font-bold text-white mb-6 text-center">管理员登录</h2>
-            <div class="space-y-5">
-                <div><label class="block text-sm font-medium text-gray-300 mb-2">用户名</label><input id="auth-username" type="text" value="admin" class="block w-full rounded-md bg-gray-700 border-gray-600 text-white p-3"/></div>
-                <div><label class="block text-sm font-medium text-gray-300 mb-2">密码</label><input id="auth-password" type="password" class="block w-full rounded-md bg-gray-700 border-gray-600 text-white p-3" placeholder="请输入密码"/></div>
-                <p id="auth-error-message" class="text-red-400 text-sm hidden text-center">用户名或密码错误。</p>
-            </div>
-            <div class="flex space-x-4 mt-8">
-                <button class="flex-1 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700" onclick="handleAdminLogin()">登录</button>
-                <button class="flex-1 py-3 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700" onclick="closeAuthModal()">取消</button>
-            </div>
+    <div id="grid-container" class="absolute inset-0 m-auto grid-flow-row" style="display: grid;">
         </div>
-    </div>
+
 </body>
 </html>
-
-
