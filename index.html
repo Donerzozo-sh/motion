@@ -309,7 +309,7 @@
             applyGridTransform();
             if (window.currentView==='table' || (isAdminMode && window.currentView==='grid')) { if (isMouseActive) animationFrameId = requestAnimationFrame(updateFisheyeEffect); return; }
 
-            // ← 只有在 0.5s 延迟结束后才真正开始鱼眼+闪烁计算
+            // ← 只有在 1s 延迟结束后才真正开始鱼眼+闪烁计算
             if (!isMouseTrackingEnabled) {
                 if (isMouseActive) animationFrameId = requestAnimationFrame(updateFisheyeEffect);
                 return;
@@ -655,3 +655,4 @@
     </div>
 </body>
 </html>
+
