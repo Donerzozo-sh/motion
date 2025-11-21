@@ -144,11 +144,11 @@
                         <div class="w-12 text-center text-gray-400 font-mono">#${i.toString().padStart(2,'0')}</div>
                         <div class="flex-1">
                             <label class="block text-xs text-gray-400 mb-1">图片 URL（留空则显示纯色）</label>
-                            <input type="text" id="img_${id}" value="${data.img || ''}" placeholder="https://..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm">
+                            <input type="text" id="img_${id}" value="${data.img || ''}" placeholder="https://..." class="w-full px-3 py-2 bg-gray-700 border-gray-600 rounded text-white text-sm">
                         </div>
                         <div class="flex-1">
                             <label class="block text-xs text-gray-400 mb-1">视频 URL（必填）</label>
-                            <input type="text" id="vid_${id}" value="${data.vid || PLACEHOLDER_VID}" placeholder="https://..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm">
+                            <input type="text" id="vid_${id}" value="${data.vid || PLACEHOLDER_VID}" placeholder="https://..." class="w-full px-3 py-2 bg-gray-700 border-gray-600 rounded text-white text-sm">
                         </div>
                         <div class="flex-shrink-0">
                             <button onclick="saveInlineItemChange('${id}', 'img_${id}', 'vid_${id}', this)"
@@ -260,8 +260,7 @@
             gridContainer.style.transform = `translateX(${currentCanvasOffsetX}px) scale(${currentCanvasScale})`;
             items.forEach(item => {
                 const r = item.el.getBoundingClientRect();
-                item.center = { x: r 
-                item.center = { x: r.left + r.width/2, y: r.top + r.height/2 };
+                item.center = { x: r.left + r.width/2, y: r.top + r.height/2 };   // ← 修复：完整的一行
             });
             gridContainer.style.transform = old;
         }
@@ -497,6 +496,8 @@
                     }
                     if (!items.length) { createGrid(); startAnimationLoop(); }
                     else if (items.length > 0) updateGridDOM();
+
+
                 });
                 setTimeout(() => { isMouseTrackingEnabled = true; }, 500);
             } catch (e) {
@@ -588,7 +589,7 @@
                 </div>
                 <div class="p-4 bg-gray-800 rounded-lg">
                     <label class="block text-lg font-medium text-white mb-4">网格视觉参数</label>
-                    <div class="grid grid-grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                         <div><label class="block text-sm font-medium text-gray-400">鱼眼半径</label><input id="edit-fisheye-radius" type="number" step="10" min="100" max="1000" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="300"/></div>
                         <div><label class="block text-sm font-medium text-gray-400">衰减幅度</label><input id="edit-decay-power" type="number" step="0.1" min="1.0" max="5.0" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="2.0"/></div>
                         <div><label class="block text-sm font-medium text-gray-400">初始大小</label><input id="edit-min-scale" type="number" step="0.01" min="0.01" max="1.0" class="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white p-2" value="0.175"/></div>
@@ -616,7 +617,7 @@
             <div class="flex space-x-4 mt-6">
                 <button class="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700" onclick="saveContent()">保存更改</button>
                 <button class="px-4 py-2 bg-gray-500 text-white font-semibold rounded-lg hover:bg-gray-600" onclick="toggleEditMode(false)">取消</button>
-            </div>
+            Credits
         </div>
     </div>
     <div id="admin-table-view" class="fixed inset-0 p-4 md:p-12 z-10 hidden overflow-auto pointer-events-auto"></div>
@@ -625,7 +626,7 @@
     </div>
     <div id="grid-container" class="absolute inset-0 m-auto grid" style="transform-origin:center center;transform:translate(0,0) scale(1);transform-style:preserve-3d;"></div>
 
-    <!-- 唯一修改：视频模态框支持任意比例视频（不再强制 16:9） -->
+    <!-- 支持任意比例视频播放 -->
     <div id="video-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex justify-center items-center hidden">
         <div class="relative w-full h-full max-w-[90vw] max-h-[90vh] flex items-center justify-center">
             <video id="video-player" class="max-w-full max-h-full object-contain" controls autoplay playsinline></video>
@@ -647,7 +648,9 @@
             </div>
             <div class="flex space-x-4 mt-8">
                 <button class="flex-1 py-3 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700" onclick="handleAdminLogin()">登录</button>
-                <button class="flex-1 py-3 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700" onclick="closeAuthModal()">取消</button>
+                <button class="flex-1 py-3 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700" onclick="closeAuthModal
+
+()">取消</button>
             </div>
         </div>
     </div>
