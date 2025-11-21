@@ -260,7 +260,7 @@
             gridContainer.style.transform = `translateX(${currentCanvasOffsetX}px) scale(${currentCanvasScale})`;
             items.forEach(item => {
                 const r = item.el.getBoundingClientRect();
-                item.center = { x: r.left + r.width / 2, y: r.top + r.height / 2 };  // ← 修复完整
+                item.center = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; // ← 关键修复：加空格
             });
             gridContainer.style.transform = old;
         }
@@ -332,7 +332,7 @@
                     bright = 0.3 + tw * 1.1 * currentTwinkleAmplitude;
                 } else {
                     const p = 1 - dist / radius;
-                    const e = 1 - Math.pow(1 - p, currentDecayPower);
+                    const e = 1 - Math.pow( 1 - p, currentDecayPower);
                     scale = currentMinScale + (currentMaxScale - currentMinScale) * e;
                     opacity = 0.7 + 0.3 * e;
                     z = 2 + Math.floor(e * 8);
@@ -624,7 +624,6 @@
     </div>
     <div id="grid-container" class="absolute inset-0 m-auto grid" style="transform-origin:center center;transform:translate(0,0) scale(1);transform-style:preserve-3d;"></div>
 
-    <!-- 支持任意比例视频播放 -->
     <div id="video-modal" class="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex justify-center items-center hidden">
         <div class="relative w-full h-full max-w-[90vw] max-h-[90vh] flex items-center justify-center">
             <video id="video-player" class="max-w-full max-h-full object-contain" controls autoplay playsinline></video>
